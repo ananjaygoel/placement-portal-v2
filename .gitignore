@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+env/
+.env
+
+# Flask
+instance/
+.flaskenv
+
+# SQLite
+*.db
+*.sqlite
+*.sqlite3
+
+# Redis / Celery
+dump.rdb
+celerybeat-schedule
+
+# Vue / Node
+node_modules/
+dist/
+.vite/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
