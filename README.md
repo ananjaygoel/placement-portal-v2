@@ -7,6 +7,8 @@ This repository currently includes:
 - SQLite database models and relationships
 - Programmatic database initialization
 - Automatic pre-creation of the Admin user
+- JWT authentication and role-based dashboard APIs
+- Vue + Bootstrap authentication UI (served by Flask)
 
 ## Database Models
 - `User` (roles: `admin`, `company`, `student`)
@@ -42,11 +44,36 @@ This repository currently includes:
    ```bash
    python scripts/init_db.py
    ```
+4. Run Flask app:
+   ```bash
+   python run.py
+   ```
+5. Open:
+   ```
+   http://127.0.0.1:5000/
+   ```
 
 ## Default Admin Seed (Override via env vars)
 - `PPA_ADMIN_EMAIL` (default: `admin@institute.edu`)
 - `PPA_ADMIN_PASSWORD` (default: `admin123`)
-- `PPA_ADMIN_FULL_NAME` (default: `Placement Admin`)
+
+## Auth + RBAC Rules
+- Admin: predefined user only (no registration endpoint).
+- Student: self-registration + login.
+- Company: registration allowed, login allowed only after admin approval (`approved` status).
+- On login, UI redirects to role-specific dashboards:
+  - `#admin-dashboard`
+  - `#company-dashboard`
+  - `#student-dashboard`
+
+## Main API Endpoints
+- `POST /api/auth/register/student`
+- `POST /api/auth/register/company`
+- `POST /api/auth/login`
+- `GET /api/auth/me`
+- `GET /api/dashboard/admin`
+- `GET /api/dashboard/company`
+- `GET /api/dashboard/student`
 
 ## Milestone Status
 - Milestone 0: Repository setup ✅

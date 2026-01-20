@@ -10,4 +10,12 @@ def create_app(config_class: type[Config] = Config) -> Flask:
 
     db.init_app(app)
 
+    from app.auth import auth_bp
+    from app.dashboard import dashboard_bp
+    from app.views import views_bp
+
+    app.register_blueprint(auth_bp, url_prefix="/api/auth")
+    app.register_blueprint(dashboard_bp, url_prefix="/api/dashboard")
+    app.register_blueprint(views_bp)
+
     return app

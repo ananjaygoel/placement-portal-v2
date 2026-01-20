@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PPA V2 - Auth & RBAC</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+  <div id="app" class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h2 class="mb-0">Placement Portal Application - V2</h2>
+      <button v-if="token" class="btn btn-outline-danger btn-sm" @click="logout">Logout</button>
+    </div>
+
+    <div v-if="message" class="alert alert-success">{{ message }}</div>
+    <div v-if="error" class="alert alert-danger">{{ error }}</div>
+
+    <div v-if="!token" class="card">
+      <div class="card-header">
+        <div class="btn-group">
+          <button class="btn btn-sm" :class="mode === 'login' ? 'btn-primary' : 'btn-outline-primary'" @click="mode='login'">Login</button>
+          <button class="btn btn-sm" :class="mode === 'student_register' ? 'btn-primary' : 'btn-outline-primary'" @click="mode='student_register'">Student Register</button>
+          <button class="btn btn-sm" :class="mode === 'company_register' ? 'btn-primary' : 'btn-outline-primary'" @click="mode='company_register'">Company Register</button>
+        </div>
+      </div>
+      <div class="card-body">
+        <form v-if="mode==='login'" @submit.prevent="login">
+          <div class="mb-3">
+            <label class="form-label">Email</label>
+            <input v-model="loginForm.email" type="email" class="form-control" required>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Password</label>
+            <input v-model="loginForm.password" type="password" class="form-control" required>
+          </div>
+          <button class="btn btn-primary" :disabled="loading">{{ loading ? 'Please wait...' : 'Login' }}</button>
+        </form>
+
+        <form v-if="mode==='student_register'" @submit.prevent="registerStudent">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Full Name</label>
+              <input v-model="studentForm.full_name" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Email</label>
+              <input v-model="studentForm.email" type="email" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Password</label>
+              <input v-model="studentForm.password" type="password" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Branch</label>
+              <input v-model="studentForm.branch" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Graduation Year</label>
+              <input v-model.number="studentForm.graduation_year" type="number" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">CGPA</label>
+              <input v-model.number="studentForm.cgpa" type="number" step="0.01" class="form-control">
+            </div>
+          </div>
+          <button class="btn btn-primary mt-3" :disabled="loading">{{ loading ? 'Please wait...' : 'Register Student' }}</button>
+        </form>
+
+        <form v-if="mode==='company_register'" @submit.prevent="registerCompany">
+          <div class="row g-3">
+            <div class="col-md-6">
+              <label class="form-label">Company Name</label>
+              <input v-model="companyForm.company_name" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Email</label>
+              <input v-model="companyForm.email" type="email" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Password</label>
+              <input v-model="companyForm.password" type="password" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Industry</label>
+              <input v-model="companyForm.industry" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Location</label>
+              <input v-model="companyForm.location" class="form-control">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">HR Contact</label>
+              <input v-model="companyForm.hr_contact" class="form-control">
+            </div>
+          </div>
+          <button class="btn btn-primary mt-3" :disabled="loading">{{ loading ? 'Please wait...' : 'Register Company' }}</button>
+        </form>
+      </div>
+    </div>
+
+    <div v-if="token" class="card">
+      <div class="card-header d-flex justify-content-between">
+        <span>Logged in as: <strong>{{ currentUser.email }}</strong> ({{ currentUser.role }})</span>
+        <button class="btn btn-outline-primary btn-sm" @click="loadDashboard">Refresh Dashboard</button>
+      </div>
+      <div class="card-body" v-if="dashboard">
+        <div v-if="currentUser.role === 'admin'">
+          <h5>Admin Dashboard</h5>
+          <div class="row g-3 mt-1">
+            <div class="col-md-4"><div class="alert alert-secondary mb-0">Students: {{ dashboard.summary.students }}</div></div>
+            <div class="col-md-4"><div class="alert alert-secondary mb-0">Companies: {{ dashboard.summary.companies }}</div></div>
+            <div class="col-md-4"><div class="alert alert-secondary mb-0">Drives: {{ dashboard.summary.placement_drives }}</div></div>
+            <div class="col-md-6 mt-3"><div class="alert alert-warning mb-0">Pending Companies: {{ dashboard.pending_approvals.companies }}</div></div>
+            <div class="col-md-6 mt-3"><div class="alert alert-warning mb-0">Pending Drives: {{ dashboard.pending_approvals.drives }}</div></div>
+          </div>
+        </div>
+
+        <div v-if="currentUser.role === 'company'">
+          <h5>Company Dashboard</h5>
+          <p class="mb-2"><strong>{{ dashboard.company.company_name }}</strong> ({{ dashboard.company.approval_status }})</p>
+          <div class="table-responsive">
+            <table class="table table-bordered">
+              <thead><tr><th>Drive</th><th>Status</th><th>Deadline</th><th>Applicants</th><th>Selected</th></tr></thead>
+              <tbody>
+                <tr v-for="drive in dashboard.drives" :key="drive.id">
+                  <td>{{ drive.title }}</td>
+                  <td>{{ drive.status }}</td>
+                  <td>{{ drive.application_deadline }}</td>
+                  <td>{{ drive.applicants_count }}</td>
+                  <td>{{ drive.selected_count }}</td>
+                </tr>
+                <tr v-if="dashboard.drives.length === 0"><td colspan="5" class="text-center">No drives yet</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div v-if="currentUser.role === 'student'">
+          <h5>Student Dashboard</h5>
+          <p class="mb-2"><strong>{{ dashboard.student.full_name }}</strong> | {{ dashboard.student.branch || 'N/A' }} | CGPA: {{ dashboard.student.cgpa ?? 'N/A' }}</p>
+          <h6 class="mt-3">Approved Drives</h6>
+          <ul class="list-group mb-3">
+            <li v-for="drive in dashboard.approved_drives" :key="drive.id" class="list-group-item">
+              {{ drive.company_name }} - {{ drive.title }} (Deadline: {{ drive.application_deadline }})
+            </li>
+            <li v-if="dashboard.approved_drives.length === 0" class="list-group-item text-center">No approved drives available</li>
+          </ul>
+          <h6>Application History</h6>
+          <ul class="list-group">
+            <li v-for="item in dashboard.application_history" :key="item.application_id" class="list-group-item">
+              {{ item.company_name }} - {{ item.job_title }} | {{ item.status }} | {{ item.applied_at }}
+            </li>
+            <li v-if="dashboard.application_history.length === 0" class="list-group-item text-center">No applications yet</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script>
+    const { createApp } = Vue;
+
+    createApp({
+      data() {
+        return {
+          mode: 'login',
+          loading: false,
+          message: '',
+          error: '',
+          token: localStorage.getItem('ppa_token') || '',
+          currentUser: {},
+          dashboard: null,
+          loginForm: { email: '', password: '' },
+          studentForm: {
+            full_name: '',
+            email: '',
+            password: '',
+            branch: '',
+            graduation_year: null,
+            cgpa: null
+          },
+          companyForm: {
+            company_name: '',
+            email: '',
+            password: '',
+            industry: '',
+            location: '',
+            hr_contact: ''
+          }
+        };
+      },
+      async mounted() {
+        if (this.token) {
+          await this.bootstrapSession();
+        }
+      },
+      methods: {
+        resetAlerts() {
+          this.message = '';
+          this.error = '';
+        },
+        authHeaders() {
+          return {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${this.token}`
+          };
+        },
+        async registerStudent() {
+          this.resetAlerts();
+          this.loading = true;
+          try {
+            const res = await fetch('/api/auth/register/student', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(this.studentForm)
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Registration failed');
+            this.message = data.message;
+            this.mode = 'login';
+            this.studentForm = { full_name: '', email: '', password: '', branch: '', graduation_year: null, cgpa: null };
+          } catch (err) {
+            this.error = err.message;
+          } finally {
+            this.loading = false;
+          }
+        },
+        async registerCompany() {
+          this.resetAlerts();
+          this.loading = true;
+          try {
+            const res = await fetch('/api/auth/register/company', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(this.companyForm)
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Registration failed');
+            this.message = data.message;
+            this.mode = 'login';
+            this.companyForm = { company_name: '', email: '', password: '', industry: '', location: '', hr_contact: '' };
+          } catch (err) {
+            this.error = err.message;
+          } finally {
+            this.loading = false;
+          }
+        },
+        async login() {
+          this.resetAlerts();
+          this.loading = true;
+          try {
+            const res = await fetch('/api/auth/login', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(this.loginForm)
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Login failed');
+            this.token = data.access_token;
+            localStorage.setItem('ppa_token', this.token);
+            this.currentUser = data.user;
+            window.location.hash = `${data.user.role}-dashboard`;
+            await this.loadDashboard();
+            this.message = `Login successful. Redirected to ${data.user.role} dashboard.`;
+          } catch (err) {
+            this.error = err.message;
+          } finally {
+            this.loading = false;
+          }
+        },
+        async bootstrapSession() {
+          try {
+            const meRes = await fetch('/api/auth/me', { headers: this.authHeaders() });
+            const meData = await meRes.json();
+            if (!meRes.ok) throw new Error(meData.error || 'Session invalid');
+            this.currentUser = meData;
+            if (!window.location.hash) {
+              window.location.hash = `${this.currentUser.role}-dashboard`;
+            }
+            await this.loadDashboard();
+          } catch (err) {
+            this.logout();
+          }
+        },
+        async loadDashboard() {
+          this.resetAlerts();
+          if (!this.currentUser.role) return;
+          const res = await fetch(`/api/dashboard/${this.currentUser.role}`, {
+            headers: this.authHeaders()
+          });
+          const data = await res.json();
+          if (!res.ok) {
+            this.error = data.error || 'Unable to load dashboard';
+            return;
+          }
+          this.dashboard = data;
+        },
+        logout() {
+          localStorage.removeItem('ppa_token');
+          this.token = '';
+          this.currentUser = {};
+          this.dashboard = null;
+          window.location.hash = '';
+          this.message = 'Logged out successfully.';
+        }
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>

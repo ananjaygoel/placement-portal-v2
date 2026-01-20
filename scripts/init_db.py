@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import sys
 
 from werkzeug.security import generate_password_hash
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
 
 from app import create_app
 from app.extensions import db
