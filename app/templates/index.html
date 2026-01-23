@@ -3,10 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>PPA V2 - Auth & RBAC</title>
+  <title>PPA V2 - Admin Dashboard & Management</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
 </head>
 <body class="bg-light">
+  {% raw %}
   <div id="app" class="container py-4">
     <div class="d-flex justify-content-between align-items-center mb-4">
       <h2 class="mb-0">Placement Portal Application - V2</h2>
@@ -50,6 +51,10 @@
             <div class="col-md-6">
               <label class="form-label">Password</label>
               <input v-model="studentForm.password" type="password" class="form-control" required>
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Contact Number</label>
+              <input v-model="studentForm.contact_number" class="form-control">
             </div>
             <div class="col-md-6">
               <label class="form-label">Branch</label>
@@ -106,13 +111,234 @@
       </div>
       <div class="card-body" v-if="dashboard">
         <div v-if="currentUser.role === 'admin'">
-          <h5>Admin Dashboard</h5>
+          <h5>Admin Dashboard & Management</h5>
           <div class="row g-3 mt-1">
-            <div class="col-md-4"><div class="alert alert-secondary mb-0">Students: {{ dashboard.summary.students }}</div></div>
-            <div class="col-md-4"><div class="alert alert-secondary mb-0">Companies: {{ dashboard.summary.companies }}</div></div>
-            <div class="col-md-4"><div class="alert alert-secondary mb-0">Drives: {{ dashboard.summary.placement_drives }}</div></div>
+            <div class="col-md-3"><div class="alert alert-secondary mb-0">Students: {{ dashboard.summary.students }}</div></div>
+            <div class="col-md-3"><div class="alert alert-secondary mb-0">Companies: {{ dashboard.summary.companies }}</div></div>
+            <div class="col-md-3"><div class="alert alert-secondary mb-0">Job Postings: {{ dashboard.summary.job_postings }}</div></div>
+            <div class="col-md-3"><div class="alert alert-secondary mb-0">Applications: {{ dashboard.summary.applications }}</div></div>
             <div class="col-md-6 mt-3"><div class="alert alert-warning mb-0">Pending Companies: {{ dashboard.pending_approvals.companies }}</div></div>
             <div class="col-md-6 mt-3"><div class="alert alert-warning mb-0">Pending Drives: {{ dashboard.pending_approvals.drives }}</div></div>
+          </div>
+
+          <div class="d-flex gap-2 flex-wrap mt-4">
+            <button class="btn btn-sm" :class="adminSection === 'companies' ? 'btn-primary' : 'btn-outline-primary'" @click="adminSection='companies'">Companies</button>
+            <button class="btn btn-sm" :class="adminSection === 'students' ? 'btn-primary' : 'btn-outline-primary'" @click="adminSection='students'">Students</button>
+            <button class="btn btn-sm" :class="adminSection === 'drives' ? 'btn-primary' : 'btn-outline-primary'" @click="adminSection='drives'">Job Postings</button>
+            <button class="btn btn-sm" :class="adminSection === 'applications' ? 'btn-primary' : 'btn-outline-primary'" @click="adminSection='applications'">Applications</button>
+          </div>
+
+          <div v-if="adminSection === 'companies'" class="mt-3">
+            <h6>Company Management</h6>
+            <div class="row g-2 mb-3">
+              <div class="col-md-4">
+                <input v-model="companyFilters.q" class="form-control form-control-sm" placeholder="Search by name / email / industry">
+              </div>
+              <div class="col-md-3">
+                <input v-model="companyFilters.industry" class="form-control form-control-sm" placeholder="Industry filter">
+              </div>
+              <div class="col-md-3">
+                <select v-model="companyFilters.approval_status" class="form-select form-select-sm">
+                  <option value="">All approval statuses</option>
+                  <option value="pending">Pending</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
+                  <option value="blacklisted">Blacklisted</option>
+                </select>
+              </div>
+              <div class="col-md-2 d-grid">
+                <button class="btn btn-sm btn-primary" @click="fetchCompanies">Search</button>
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-bordered table-sm align-middle">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Industry</th>
+                    <th>Email</th>
+                    <th>Approval</th>
+                    <th>Active</th>
+                    <th>Blacklisted</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="company in companies" :key="company.id">
+                    <td>{{ company.id }}</td>
+                    <td>{{ company.company_name }}</td>
+                    <td>{{ company.industry || 'N/A' }}</td>
+                    <td>{{ company.email }}</td>
+                    <td>{{ company.approval_status }}</td>
+                    <td>{{ company.user_is_active ? 'Yes' : 'No' }}</td>
+                    <td>{{ company.user_is_blacklisted ? 'Yes' : 'No' }}</td>
+                    <td class="d-flex flex-wrap gap-1">
+                      <button class="btn btn-success btn-sm" @click="setCompanyApproval(company.id, 'approved')">Approve</button>
+                      <button class="btn btn-warning btn-sm" @click="setCompanyApproval(company.id, 'rejected')">Reject</button>
+                      <button class="btn btn-dark btn-sm" @click="toggleCompanyBlacklist(company.id, true)">Blacklist</button>
+                      <button class="btn btn-outline-dark btn-sm" @click="toggleCompanyBlacklist(company.id, false)">Unblacklist</button>
+                      <button class="btn btn-outline-secondary btn-sm" @click="toggleCompanyActive(company.id, !company.user_is_active)">{{ company.user_is_active ? 'Deactivate' : 'Activate' }}</button>
+                      <button class="btn btn-danger btn-sm" @click="removeCompany(company.id)">Remove</button>
+                    </td>
+                  </tr>
+                  <tr v-if="companies.length === 0"><td colspan="8" class="text-center">No companies found</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div v-if="adminSection === 'students'" class="mt-3">
+            <h6>Student Management</h6>
+            <div class="row g-2 mb-3">
+              <div class="col-md-8">
+                <input v-model="studentFilters.q" class="form-control form-control-sm" placeholder="Search by name / ID / contact / email">
+              </div>
+              <div class="col-md-4 d-grid">
+                <button class="btn btn-sm btn-primary" @click="fetchStudents">Search</button>
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-bordered table-sm align-middle">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Contact</th>
+                    <th>Email</th>
+                    <th>Branch</th>
+                    <th>Active</th>
+                    <th>Blacklisted</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="student in students" :key="student.id">
+                    <td>{{ student.id }}</td>
+                    <td>{{ student.full_name }}</td>
+                    <td>{{ student.contact_number || 'N/A' }}</td>
+                    <td>{{ student.email }}</td>
+                    <td>{{ student.branch || 'N/A' }}</td>
+                    <td>{{ student.user_is_active ? 'Yes' : 'No' }}</td>
+                    <td>{{ student.user_is_blacklisted ? 'Yes' : 'No' }}</td>
+                    <td class="d-flex flex-wrap gap-1">
+                      <button class="btn btn-dark btn-sm" @click="toggleStudentBlacklist(student.id, true)">Blacklist</button>
+                      <button class="btn btn-outline-dark btn-sm" @click="toggleStudentBlacklist(student.id, false)">Unblacklist</button>
+                      <button class="btn btn-outline-secondary btn-sm" @click="toggleStudentActive(student.id, !student.user_is_active)">{{ student.user_is_active ? 'Deactivate' : 'Activate' }}</button>
+                      <button class="btn btn-danger btn-sm" @click="removeStudent(student.id)">Remove</button>
+                    </td>
+                  </tr>
+                  <tr v-if="students.length === 0"><td colspan="8" class="text-center">No students found</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div v-if="adminSection === 'drives'" class="mt-3">
+            <h6>Job Posting / Drive Management</h6>
+            <div class="row g-2 mb-3">
+              <div class="col-md-6">
+                <input v-model="driveFilters.q" class="form-control form-control-sm" placeholder="Search by title / company / drive ID">
+              </div>
+              <div class="col-md-3">
+                <select v-model="driveFilters.status" class="form-select form-select-sm">
+                  <option value="">All statuses</option>
+                  <option value="pending">Pending</option>
+                  <option value="approved">Approved</option>
+                  <option value="rejected">Rejected</option>
+                  <option value="closed">Closed</option>
+                </select>
+              </div>
+              <div class="col-md-3 d-grid">
+                <button class="btn btn-sm btn-primary" @click="fetchDrives">Search</button>
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-bordered table-sm align-middle">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Company</th>
+                    <th>Title</th>
+                    <th>Status</th>
+                    <th>Deadline</th>
+                    <th>Applications</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="drive in drives" :key="drive.id">
+                    <td>{{ drive.id }}</td>
+                    <td>{{ drive.company_name }}</td>
+                    <td>{{ drive.title }}</td>
+                    <td>{{ drive.status }}</td>
+                    <td>{{ drive.application_deadline }}</td>
+                    <td>{{ drive.applications_count }}</td>
+                    <td class="d-flex flex-wrap gap-1">
+                      <button class="btn btn-success btn-sm" @click="updateDriveStatus(drive.id, 'approved')">Approve</button>
+                      <button class="btn btn-warning btn-sm" @click="updateDriveStatus(drive.id, 'rejected')">Reject</button>
+                      <button class="btn btn-outline-primary btn-sm" @click="updateDriveStatus(drive.id, 'closed')">Close</button>
+                      <button class="btn btn-danger btn-sm" @click="removeDrive(drive.id)">Remove</button>
+                    </td>
+                  </tr>
+                  <tr v-if="drives.length === 0"><td colspan="7" class="text-center">No job postings found</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div v-if="adminSection === 'applications'" class="mt-3">
+            <h6>Application Management</h6>
+            <div class="row g-2 mb-3">
+              <div class="col-md-6">
+                <input v-model="applicationFilters.q" class="form-control form-control-sm" placeholder="Search by student / company / role / ID">
+              </div>
+              <div class="col-md-3">
+                <select v-model="applicationFilters.status" class="form-select form-select-sm">
+                  <option value="">All statuses</option>
+                  <option value="applied">Applied</option>
+                  <option value="shortlisted">Shortlisted</option>
+                  <option value="selected">Selected</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </div>
+              <div class="col-md-3 d-grid">
+                <button class="btn btn-sm btn-primary" @click="fetchApplications">Search</button>
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-bordered table-sm align-middle">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Student</th>
+                    <th>Company</th>
+                    <th>Job</th>
+                    <th>Status</th>
+                    <th>Applied At</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="application in applications" :key="application.id">
+                    <td>{{ application.id }}</td>
+                    <td>{{ application.student_name }}</td>
+                    <td>{{ application.company_name }}</td>
+                    <td>{{ application.job_title }}</td>
+                    <td>{{ application.status }}</td>
+                    <td>{{ application.applied_at }}</td>
+                    <td class="d-flex flex-wrap gap-1">
+                      <button class="btn btn-outline-primary btn-sm" @click="updateApplicationStatus(application.id, 'applied')">Applied</button>
+                      <button class="btn btn-outline-info btn-sm" @click="updateApplicationStatus(application.id, 'shortlisted')">Shortlist</button>
+                      <button class="btn btn-success btn-sm" @click="updateApplicationStatus(application.id, 'selected')">Select</button>
+                      <button class="btn btn-warning btn-sm" @click="updateApplicationStatus(application.id, 'rejected')">Reject</button>
+                      <button class="btn btn-danger btn-sm" @click="removeApplication(application.id)">Remove</button>
+                    </td>
+                  </tr>
+                  <tr v-if="applications.length === 0"><td colspan="7" class="text-center">No applications found</td></tr>
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
 
@@ -138,7 +364,7 @@
 
         <div v-if="currentUser.role === 'student'">
           <h5>Student Dashboard</h5>
-          <p class="mb-2"><strong>{{ dashboard.student.full_name }}</strong> | {{ dashboard.student.branch || 'N/A' }} | CGPA: {{ dashboard.student.cgpa ?? 'N/A' }}</p>
+          <p class="mb-2"><strong>{{ dashboard.student.full_name }}</strong> | {{ dashboard.student.branch || 'N/A' }} | Contact: {{ dashboard.student.contact_number || 'N/A' }} | CGPA: {{ dashboard.student.cgpa ?? 'N/A' }}</p>
           <h6 class="mt-3">Approved Drives</h6>
           <ul class="list-group mb-3">
             <li v-for="drive in dashboard.approved_drives" :key="drive.id" class="list-group-item">
@@ -166,17 +392,39 @@
       data() {
         return {
           mode: 'login',
+          adminSection: 'companies',
           loading: false,
           message: '',
           error: '',
           token: localStorage.getItem('ppa_token') || '',
           currentUser: {},
           dashboard: null,
+          companies: [],
+          students: [],
+          drives: [],
+          applications: [],
+          companyFilters: {
+            q: '',
+            industry: '',
+            approval_status: ''
+          },
+          studentFilters: {
+            q: ''
+          },
+          driveFilters: {
+            q: '',
+            status: ''
+          },
+          applicationFilters: {
+            q: '',
+            status: ''
+          },
           loginForm: { email: '', password: '' },
           studentForm: {
             full_name: '',
             email: '',
             password: '',
+            contact_number: '',
             branch: '',
             graduation_year: null,
             cgpa: null
@@ -201,6 +449,24 @@
           this.message = '';
           this.error = '';
         },
+        toQuery(params) {
+          const query = new URLSearchParams();
+          Object.entries(params).forEach(([key, value]) => {
+            if (value !== null && value !== undefined && value !== '') {
+              query.append(key, value);
+            }
+          });
+          const queryString = query.toString();
+          return queryString ? `?${queryString}` : '';
+        },
+        async requestJson(url, options = {}) {
+          const response = await fetch(url, options);
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            throw new Error(data.error || data.message || 'Request failed');
+          }
+          return data;
+        },
         authHeaders() {
           return {
             'Content-Type': 'application/json',
@@ -211,16 +477,14 @@
           this.resetAlerts();
           this.loading = true;
           try {
-            const res = await fetch('/api/auth/register/student', {
+            const data = await this.requestJson('/api/auth/register/student', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(this.studentForm)
             });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Registration failed');
             this.message = data.message;
             this.mode = 'login';
-            this.studentForm = { full_name: '', email: '', password: '', branch: '', graduation_year: null, cgpa: null };
+            this.studentForm = { full_name: '', email: '', password: '', contact_number: '', branch: '', graduation_year: null, cgpa: null };
           } catch (err) {
             this.error = err.message;
           } finally {
@@ -231,13 +495,11 @@
           this.resetAlerts();
           this.loading = true;
           try {
-            const res = await fetch('/api/auth/register/company', {
+            const data = await this.requestJson('/api/auth/register/company', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(this.companyForm)
             });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Registration failed');
             this.message = data.message;
             this.mode = 'login';
             this.companyForm = { company_name: '', email: '', password: '', industry: '', location: '', hr_contact: '' };
@@ -251,13 +513,11 @@
           this.resetAlerts();
           this.loading = true;
           try {
-            const res = await fetch('/api/auth/login', {
+            const data = await this.requestJson('/api/auth/login', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(this.loginForm)
             });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Login failed');
             this.token = data.access_token;
             localStorage.setItem('ppa_token', this.token);
             this.currentUser = data.user;
@@ -272,9 +532,7 @@
         },
         async bootstrapSession() {
           try {
-            const meRes = await fetch('/api/auth/me', { headers: this.authHeaders() });
-            const meData = await meRes.json();
-            if (!meRes.ok) throw new Error(meData.error || 'Session invalid');
+            const meData = await this.requestJson('/api/auth/me', { headers: this.authHeaders() });
             this.currentUser = meData;
             if (!window.location.hash) {
               window.location.hash = `${this.currentUser.role}-dashboard`;
@@ -287,26 +545,220 @@
         async loadDashboard() {
           this.resetAlerts();
           if (!this.currentUser.role) return;
-          const res = await fetch(`/api/dashboard/${this.currentUser.role}`, {
-            headers: this.authHeaders()
-          });
-          const data = await res.json();
-          if (!res.ok) {
-            this.error = data.error || 'Unable to load dashboard';
-            return;
+          try {
+            const endpoint = this.currentUser.role === 'admin'
+              ? '/api/admin/overview'
+              : `/api/dashboard/${this.currentUser.role}`;
+            this.dashboard = await this.requestJson(endpoint, { headers: this.authHeaders() });
+            if (this.currentUser.role === 'admin') {
+              await this.loadAdminManagementData();
+            }
+          } catch (err) {
+            this.error = err.message;
           }
-          this.dashboard = data;
+        },
+        async loadAdminManagementData() {
+          await Promise.all([
+            this.fetchCompanies(),
+            this.fetchStudents(),
+            this.fetchDrives(),
+            this.fetchApplications()
+          ]);
+        },
+        async fetchCompanies() {
+          try {
+            const query = this.toQuery(this.companyFilters);
+            const data = await this.requestJson(`/api/admin/companies${query}`, { headers: this.authHeaders() });
+            this.companies = data.companies || [];
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async setCompanyApproval(companyId, approvalStatus) {
+          try {
+            await this.requestJson(`/api/admin/companies/${companyId}/approval`, {
+              method: 'PATCH',
+              headers: this.authHeaders(),
+              body: JSON.stringify({ approval_status: approvalStatus })
+            });
+            await this.loadDashboard();
+            this.message = 'Company approval updated';
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async toggleCompanyBlacklist(companyId, isBlacklisted) {
+          try {
+            await this.requestJson(`/api/admin/companies/${companyId}/status`, {
+              method: 'PATCH',
+              headers: this.authHeaders(),
+              body: JSON.stringify({ is_blacklisted: isBlacklisted })
+            });
+            await this.loadDashboard();
+            this.message = 'Company blacklist status updated';
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async toggleCompanyActive(companyId, isActive) {
+          try {
+            await this.requestJson(`/api/admin/companies/${companyId}/status`, {
+              method: 'PATCH',
+              headers: this.authHeaders(),
+              body: JSON.stringify({ is_active: isActive })
+            });
+            await this.loadDashboard();
+            this.message = 'Company active status updated';
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async removeCompany(companyId) {
+          if (!window.confirm('Remove this company profile?')) return;
+          try {
+            await this.requestJson(`/api/admin/companies/${companyId}`, {
+              method: 'DELETE',
+              headers: this.authHeaders()
+            });
+            await this.loadDashboard();
+            this.message = 'Company removed successfully';
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async fetchStudents() {
+          try {
+            const query = this.toQuery(this.studentFilters);
+            const data = await this.requestJson(`/api/admin/students${query}`, { headers: this.authHeaders() });
+            this.students = data.students || [];
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async toggleStudentBlacklist(studentId, isBlacklisted) {
+          try {
+            await this.requestJson(`/api/admin/students/${studentId}/status`, {
+              method: 'PATCH',
+              headers: this.authHeaders(),
+              body: JSON.stringify({ is_blacklisted: isBlacklisted })
+            });
+            await this.loadDashboard();
+            this.message = 'Student blacklist status updated';
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async toggleStudentActive(studentId, isActive) {
+          try {
+            await this.requestJson(`/api/admin/students/${studentId}/status`, {
+              method: 'PATCH',
+              headers: this.authHeaders(),
+              body: JSON.stringify({ is_active: isActive })
+            });
+            await this.loadDashboard();
+            this.message = 'Student active status updated';
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async removeStudent(studentId) {
+          if (!window.confirm('Remove this student profile?')) return;
+          try {
+            await this.requestJson(`/api/admin/students/${studentId}`, {
+              method: 'DELETE',
+              headers: this.authHeaders()
+            });
+            await this.loadDashboard();
+            this.message = 'Student removed successfully';
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async fetchDrives() {
+          try {
+            const query = this.toQuery(this.driveFilters);
+            const data = await this.requestJson(`/api/admin/drives${query}`, { headers: this.authHeaders() });
+            this.drives = data.drives || [];
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async updateDriveStatus(driveId, status) {
+          try {
+            await this.requestJson(`/api/admin/drives/${driveId}/status`, {
+              method: 'PATCH',
+              headers: this.authHeaders(),
+              body: JSON.stringify({ status })
+            });
+            await this.loadDashboard();
+            this.message = 'Drive status updated';
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async removeDrive(driveId) {
+          if (!window.confirm('Remove this job posting?')) return;
+          try {
+            await this.requestJson(`/api/admin/drives/${driveId}`, {
+              method: 'DELETE',
+              headers: this.authHeaders()
+            });
+            await this.loadDashboard();
+            this.message = 'Drive removed successfully';
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async fetchApplications() {
+          try {
+            const query = this.toQuery(this.applicationFilters);
+            const data = await this.requestJson(`/api/admin/applications${query}`, { headers: this.authHeaders() });
+            this.applications = data.applications || [];
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async updateApplicationStatus(applicationId, status) {
+          try {
+            await this.requestJson(`/api/admin/applications/${applicationId}/status`, {
+              method: 'PATCH',
+              headers: this.authHeaders(),
+              body: JSON.stringify({ status })
+            });
+            await this.loadDashboard();
+            this.message = 'Application status updated';
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async removeApplication(applicationId) {
+          if (!window.confirm('Remove this application?')) return;
+          try {
+            await this.requestJson(`/api/admin/applications/${applicationId}`, {
+              method: 'DELETE',
+              headers: this.authHeaders()
+            });
+            await this.loadDashboard();
+            this.message = 'Application removed successfully';
+          } catch (err) {
+            this.error = err.message;
+          }
         },
         logout() {
           localStorage.removeItem('ppa_token');
           this.token = '';
           this.currentUser = {};
           this.dashboard = null;
+          this.companies = [];
+          this.students = [];
+          this.drives = [];
+          this.applications = [];
           window.location.hash = '';
           this.message = 'Logged out successfully.';
         }
       }
     }).mount('#app');
   </script>
+  {% endraw %}
 </body>
 </html>

@@ -48,6 +48,8 @@ def main() -> None:
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
 
     with app.app_context():
+        if os.getenv("PPA_RESET_DB", "0") == "1":
+            db.drop_all()
         db.create_all()
         seed_admin()
         print("Database initialization complete.")

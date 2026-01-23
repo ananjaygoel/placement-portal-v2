@@ -29,6 +29,7 @@ def admin_dashboard():
             "summary": {
                 "students": Student.query.count(),
                 "companies": Company.query.count(),
+                "job_postings": JobPosition.query.count(),
                 "placement_drives": JobPosition.query.count(),
                 "applications": Application.query.count(),
                 "placements": Placement.query.count(),
@@ -130,6 +131,7 @@ def student_dashboard():
             "student": {
                 "id": student.id,
                 "full_name": student.full_name,
+                "contact_number": student.contact_number,
                 "branch": student.branch,
                 "graduation_year": student.graduation_year,
                 "cgpa": student.cgpa,

@@ -9,6 +9,7 @@ This repository currently includes:
 - Automatic pre-creation of the Admin user
 - JWT authentication and role-based dashboard APIs
 - Vue + Bootstrap authentication UI (served by Flask)
+- Admin management APIs for companies, students, drives, and applications
 
 ## Database Models
 - `User` (roles: `admin`, `company`, `student`)
@@ -56,6 +57,7 @@ This repository currently includes:
 ## Default Admin Seed (Override via env vars)
 - `PPA_ADMIN_EMAIL` (default: `admin@institute.edu`)
 - `PPA_ADMIN_PASSWORD` (default: `admin123`)
+- `PPA_RESET_DB=1` (optional, drops and recreates all tables before seeding)
 
 ## Auth + RBAC Rules
 - Admin: predefined user only (no registration endpoint).
@@ -71,10 +73,26 @@ This repository currently includes:
 - `POST /api/auth/register/company`
 - `POST /api/auth/login`
 - `GET /api/auth/me`
+- `GET /api/admin/overview`
+- `GET /api/admin/companies`
+- `PATCH /api/admin/companies/<company_id>/approval`
+- `PATCH /api/admin/companies/<company_id>/status`
+- `DELETE /api/admin/companies/<company_id>`
+- `GET /api/admin/students`
+- `PATCH /api/admin/students/<student_id>/status`
+- `DELETE /api/admin/students/<student_id>`
+- `GET /api/admin/drives`
+- `PATCH /api/admin/drives/<drive_id>/status`
+- `DELETE /api/admin/drives/<drive_id>`
+- `GET /api/admin/applications`
+- `PATCH /api/admin/applications/<application_id>/status`
+- `DELETE /api/admin/applications/<application_id>`
 - `GET /api/dashboard/admin`
 - `GET /api/dashboard/company`
 - `GET /api/dashboard/student`
 
 ## Milestone Status
 - Milestone 0: Repository setup ✅
-- Milestone 1 (in progress): DB models and schema setup
+- Milestone 1: DB models and schema setup ✅
+- Milestone 2: Authentication + RBAC ✅
+- Milestone 3 (in progress): Admin dashboard and management

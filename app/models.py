@@ -108,6 +108,7 @@ class Student(db.Model):
     user_id = db.Column(db.Integer, db.ForeignKey("users.id"), unique=True, nullable=False)
     full_name = db.Column(db.String(255), nullable=False, index=True)
     education = db.Column(db.String(255))
+    contact_number = db.Column(db.String(30), index=True)
     branch = db.Column(db.String(120), index=True)
     graduation_year = db.Column(db.Integer, index=True)
     cgpa = db.Column(db.Float)
