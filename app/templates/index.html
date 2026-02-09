@@ -343,22 +343,251 @@
         </div>
 
         <div v-if="currentUser.role === 'company'">
-          <h5>Company Dashboard</h5>
-          <p class="mb-2"><strong>{{ dashboard.company.company_name }}</strong> ({{ dashboard.company.approval_status }})</p>
-          <div class="table-responsive">
-            <table class="table table-bordered">
-              <thead><tr><th>Drive</th><th>Status</th><th>Deadline</th><th>Applicants</th><th>Selected</th></tr></thead>
-              <tbody>
-                <tr v-for="drive in dashboard.drives" :key="drive.id">
-                  <td>{{ drive.title }}</td>
-                  <td>{{ drive.status }}</td>
-                  <td>{{ drive.application_deadline }}</td>
-                  <td>{{ drive.applicants_count }}</td>
-                  <td>{{ drive.selected_count }}</td>
-                </tr>
-                <tr v-if="dashboard.drives.length === 0"><td colspan="5" class="text-center">No drives yet</td></tr>
-              </tbody>
-            </table>
+          <h5>Company Dashboard & Job Management</h5>
+          <p class="mb-2">
+            <strong>{{ dashboard.company.company_name }}</strong>
+            ({{ dashboard.company.approval_status }}) | {{ dashboard.company.industry || 'N/A' }} | {{ dashboard.company.location || 'N/A' }}
+          </p>
+          <div class="row g-3 mt-1">
+            <div class="col-md-3"><div class="alert alert-secondary mb-0">Job Postings: {{ dashboard.summary.total_job_postings }}</div></div>
+            <div class="col-md-3"><div class="alert alert-secondary mb-0">Applications: {{ dashboard.summary.received_applications }}</div></div>
+            <div class="col-md-3"><div class="alert alert-info mb-0">Shortlisted: {{ dashboard.summary.shortlisted_candidates }}</div></div>
+            <div class="col-md-3"><div class="alert alert-success mb-0">Selected: {{ dashboard.summary.selected_candidates }}</div></div>
+          </div>
+
+          <div class="d-flex gap-2 flex-wrap mt-4">
+            <button class="btn btn-sm" :class="companySection === 'jobs' ? 'btn-primary' : 'btn-outline-primary'" @click="companySection='jobs'">Job Postings</button>
+            <button class="btn btn-sm" :class="companySection === 'applications' ? 'btn-primary' : 'btn-outline-primary'" @click="companySection='applications'">Applications</button>
+            <button class="btn btn-sm" :class="companySection === 'interviews' ? 'btn-primary' : 'btn-outline-primary'" @click="companySection='interviews'">Interviews</button>
+            <button class="btn btn-sm" :class="companySection === 'shortlisted' ? 'btn-primary' : 'btn-outline-primary'" @click="companySection='shortlisted'">Shortlisted</button>
+          </div>
+
+          <div v-if="companySection === 'jobs'" class="mt-3">
+            <h6>Post New Job Position</h6>
+            <form class="card card-body mb-3" @submit.prevent="createCompanyJob">
+              <div class="row g-2">
+                <div class="col-md-4">
+                  <label class="form-label">Job Title</label>
+                  <input v-model="companyJobForm.title" class="form-control form-control-sm" required>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Required Skills</label>
+                  <input v-model="companyJobForm.skills_required" class="form-control form-control-sm" required>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Experience Required</label>
+                  <input v-model="companyJobForm.experience_required" class="form-control form-control-sm" required>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Salary</label>
+                  <input v-model.number="companyJobForm.salary" type="number" min="0" class="form-control form-control-sm" required>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Benefits</label>
+                  <input v-model="companyJobForm.benefits" class="form-control form-control-sm" required>
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Application Deadline</label>
+                  <input v-model="companyJobForm.application_deadline" type="date" class="form-control form-control-sm" required>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Eligibility Branch</label>
+                  <input v-model="companyJobForm.eligibility_branch" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Minimum CGPA</label>
+                  <input v-model.number="companyJobForm.minimum_cgpa" step="0.01" type="number" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-3">
+                  <label class="form-label">Minimum Graduation Year</label>
+                  <input v-model.number="companyJobForm.minimum_graduation_year" type="number" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-12">
+                  <label class="form-label">Description</label>
+                  <textarea v-model="companyJobForm.description" class="form-control form-control-sm" rows="2"></textarea>
+                </div>
+              </div>
+              <div class="mt-3 d-flex justify-content-end">
+                <button class="btn btn-sm btn-primary">Post Job</button>
+              </div>
+            </form>
+
+            <h6>Manage Job Postings</h6>
+            <div class="row g-2 mb-3">
+              <div class="col-md-8">
+                <input v-model="companyJobFilters.q" class="form-control form-control-sm" placeholder="Search by title / skills / job ID">
+              </div>
+              <div class="col-md-2">
+                <select v-model="companyJobFilters.status" class="form-select form-select-sm">
+                  <option value="">All statuses</option>
+                  <option value="pending">Pending</option>
+                  <option value="approved">Active</option>
+                  <option value="closed">Closed</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </div>
+              <div class="col-md-2 d-grid">
+                <button class="btn btn-sm btn-primary" @click="fetchCompanyJobs">Search</button>
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-bordered table-sm align-middle">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Title</th>
+                    <th>Skills</th>
+                    <th>Experience</th>
+                    <th>Salary</th>
+                    <th>Status</th>
+                    <th>Deadline</th>
+                    <th>Applicants</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="job in companyJobs" :key="job.id">
+                    <td>{{ job.id }}</td>
+                    <td>{{ job.title }}</td>
+                    <td>{{ job.skills_required }}</td>
+                    <td>{{ job.experience_required }}</td>
+                    <td>{{ job.salary ?? 'N/A' }}</td>
+                    <td>{{ job.status }}</td>
+                    <td>{{ job.application_deadline }}</td>
+                    <td>{{ job.applications_count }}</td>
+                    <td class="d-flex flex-wrap gap-1">
+                      <button class="btn btn-info btn-sm text-white" @click="openJobApplicants(job)">Applicants</button>
+                      <button v-if="job.status === 'approved'" class="btn btn-outline-primary btn-sm" @click="updateCompanyJobStatus(job.id, 'closed')">Close</button>
+                      <button v-if="job.status === 'closed'" class="btn btn-outline-success btn-sm" @click="updateCompanyJobStatus(job.id, 'approved')">Reopen</button>
+                    </td>
+                  </tr>
+                  <tr v-if="companyJobs.length === 0"><td colspan="9" class="text-center">No job postings found</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div v-if="companySection === 'applications'" class="mt-3">
+            <h6>Received Applications</h6>
+            <div class="row g-2 mb-3">
+              <div class="col-md-5">
+                <input v-model="companyApplicationFilters.q" class="form-control form-control-sm" placeholder="Search by student / email / job">
+              </div>
+              <div class="col-md-3">
+                <select v-model="companyApplicationFilters.status" class="form-select form-select-sm">
+                  <option value="">All statuses</option>
+                  <option value="applied">Applied</option>
+                  <option value="shortlisted">Shortlisted</option>
+                  <option value="selected">Selected</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </div>
+              <div class="col-md-2">
+                <input v-model="companyApplicationFilters.job_id" class="form-control form-control-sm" placeholder="Job ID">
+              </div>
+              <div class="col-md-2 d-grid">
+                <button class="btn btn-sm btn-primary" @click="fetchCompanyApplications">Search</button>
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-bordered table-sm align-middle">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Student</th>
+                    <th>Contact</th>
+                    <th>Job</th>
+                    <th>Status</th>
+                    <th>Feedback</th>
+                    <th>Latest Interview</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="application in companyApplications" :key="application.id">
+                    <td>{{ application.id }}</td>
+                    <td>{{ application.student_name }}</td>
+                    <td>{{ application.student_contact || application.student_email }}</td>
+                    <td>{{ application.job_title }}</td>
+                    <td>{{ application.status }}</td>
+                    <td>{{ application.company_feedback || 'N/A' }}</td>
+                    <td>{{ application.latest_interview ? application.latest_interview.scheduled_at : 'N/A' }}</td>
+                    <td class="d-flex flex-wrap gap-1">
+                      <button class="btn btn-outline-info btn-sm" @click="updateCompanyApplicationStatus(application.id, 'shortlisted')">Shortlist</button>
+                      <button class="btn btn-success btn-sm" @click="updateCompanyApplicationStatus(application.id, 'selected')">Select</button>
+                      <button class="btn btn-warning btn-sm" @click="updateCompanyApplicationStatus(application.id, 'rejected')">Reject</button>
+                      <button v-if="application.status === 'shortlisted'" class="btn btn-primary btn-sm" @click="scheduleInterviewForApplication(application)">Schedule Interview</button>
+                    </td>
+                  </tr>
+                  <tr v-if="companyApplications.length === 0"><td colspan="8" class="text-center">No applications found</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div v-if="companySection === 'interviews'" class="mt-3">
+            <h6>Interview Schedule</h6>
+            <div class="row g-2 mb-3">
+              <div class="col-md-4">
+                <select v-model="companyInterviewFilters.status" class="form-select form-select-sm">
+                  <option value="">All statuses</option>
+                  <option value="scheduled">Scheduled</option>
+                  <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </div>
+              <div class="col-md-4">
+                <input v-model="companyInterviewFilters.job_id" class="form-control form-control-sm" placeholder="Job ID filter">
+              </div>
+              <div class="col-md-4 d-grid">
+                <button class="btn btn-sm btn-primary" @click="fetchCompanyInterviews">Search</button>
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-bordered table-sm align-middle">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Student</th>
+                    <th>Job</th>
+                    <th>Scheduled At</th>
+                    <th>Mode</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="interview in companyInterviews" :key="interview.id">
+                    <td>{{ interview.id }}</td>
+                    <td>{{ interview.student_name }}</td>
+                    <td>{{ interview.job_title }}</td>
+                    <td>{{ interview.scheduled_at }}</td>
+                    <td>{{ interview.interview_mode }}</td>
+                    <td>{{ interview.status }}</td>
+                    <td class="d-flex flex-wrap gap-1">
+                      <button class="btn btn-success btn-sm" @click="updateCompanyInterviewStatus(interview.id, 'completed')">Mark Completed</button>
+                      <button class="btn btn-warning btn-sm" @click="updateCompanyInterviewStatus(interview.id, 'cancelled')">Cancel</button>
+                      <button class="btn btn-outline-primary btn-sm" @click="updateCompanyInterviewStatus(interview.id, 'scheduled')">Reschedule</button>
+                    </td>
+                  </tr>
+                  <tr v-if="companyInterviews.length === 0"><td colspan="7" class="text-center">No interviews found</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div v-if="companySection === 'shortlisted'" class="mt-3">
+            <h6>Shortlisted Candidates</h6>
+            <ul class="list-group">
+              <li v-for="candidate in dashboard.shortlisted_candidates" :key="candidate.id" class="list-group-item d-flex justify-content-between align-items-center">
+                <span>
+                  <strong>{{ candidate.student_name }}</strong> - {{ candidate.job_title }} ({{ candidate.status }})
+                  <span v-if="candidate.company_feedback"> | Feedback: {{ candidate.company_feedback }}</span>
+                </span>
+                <button class="btn btn-sm btn-outline-primary" @click="companySection='applications'; companyApplicationFilters.job_id = candidate.job_id; fetchCompanyApplications()">View</button>
+              </li>
+              <li v-if="dashboard.shortlisted_candidates.length === 0" class="list-group-item text-center">No shortlisted candidates yet</li>
+            </ul>
           </div>
         </div>
 
@@ -376,6 +605,8 @@
           <ul class="list-group">
             <li v-for="item in dashboard.application_history" :key="item.application_id" class="list-group-item">
               {{ item.company_name }} - {{ item.job_title }} | {{ item.status }} | {{ item.applied_at }}
+              <span v-if="item.company_feedback"> | Feedback: {{ item.company_feedback }}</span>
+              <span v-if="item.latest_interview_at"> | Interview: {{ item.latest_interview_at }}</span>
             </li>
             <li v-if="dashboard.application_history.length === 0" class="list-group-item text-center">No applications yet</li>
           </ul>
@@ -393,6 +624,7 @@
         return {
           mode: 'login',
           adminSection: 'companies',
+          companySection: 'jobs',
           loading: false,
           message: '',
           error: '',
@@ -403,6 +635,9 @@
           students: [],
           drives: [],
           applications: [],
+          companyJobs: [],
+          companyApplications: [],
+          companyInterviews: [],
           companyFilters: {
             q: '',
             industry: '',
@@ -418,6 +653,31 @@
           applicationFilters: {
             q: '',
             status: ''
+          },
+          companyJobFilters: {
+            q: '',
+            status: ''
+          },
+          companyApplicationFilters: {
+            q: '',
+            status: '',
+            job_id: ''
+          },
+          companyInterviewFilters: {
+            status: '',
+            job_id: ''
+          },
+          companyJobForm: {
+            title: '',
+            description: '',
+            skills_required: '',
+            experience_required: '',
+            salary: null,
+            benefits: '',
+            application_deadline: '',
+            eligibility_branch: '',
+            minimum_cgpa: null,
+            minimum_graduation_year: null
           },
           loginForm: { email: '', password: '' },
           studentForm: {
@@ -548,10 +808,15 @@
           try {
             const endpoint = this.currentUser.role === 'admin'
               ? '/api/admin/overview'
-              : `/api/dashboard/${this.currentUser.role}`;
+              : this.currentUser.role === 'company'
+                ? '/api/company/overview'
+                : `/api/dashboard/${this.currentUser.role}`;
             this.dashboard = await this.requestJson(endpoint, { headers: this.authHeaders() });
             if (this.currentUser.role === 'admin') {
               await this.loadAdminManagementData();
+            }
+            if (this.currentUser.role === 'company') {
+              await this.loadCompanyManagementData();
             }
           } catch (err) {
             this.error = err.message;
@@ -563,6 +828,13 @@
             this.fetchStudents(),
             this.fetchDrives(),
             this.fetchApplications()
+          ]);
+        },
+        async loadCompanyManagementData() {
+          await Promise.all([
+            this.fetchCompanyJobs(),
+            this.fetchCompanyApplications(),
+            this.fetchCompanyInterviews()
           ]);
         },
         async fetchCompanies() {
@@ -744,6 +1016,137 @@
             this.error = err.message;
           }
         },
+        async createCompanyJob() {
+          try {
+            await this.requestJson('/api/company/jobs', {
+              method: 'POST',
+              headers: this.authHeaders(),
+              body: JSON.stringify(this.companyJobForm)
+            });
+            this.message = 'Job posted successfully and sent for admin approval';
+            this.companyJobForm = {
+              title: '',
+              description: '',
+              skills_required: '',
+              experience_required: '',
+              salary: null,
+              benefits: '',
+              application_deadline: '',
+              eligibility_branch: '',
+              minimum_cgpa: null,
+              minimum_graduation_year: null
+            };
+            await this.loadDashboard();
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async fetchCompanyJobs() {
+          try {
+            const query = this.toQuery(this.companyJobFilters);
+            const data = await this.requestJson(`/api/company/jobs${query}`, {
+              headers: this.authHeaders()
+            });
+            this.companyJobs = data.jobs || [];
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async updateCompanyJobStatus(jobId, status) {
+          try {
+            await this.requestJson(`/api/company/jobs/${jobId}/status`, {
+              method: 'PATCH',
+              headers: this.authHeaders(),
+              body: JSON.stringify({ status })
+            });
+            this.message = 'Job status updated';
+            await this.loadDashboard();
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async openJobApplicants(job) {
+          this.companySection = 'applications';
+          this.companyApplicationFilters.job_id = String(job.id);
+          await this.fetchCompanyApplications();
+        },
+        async fetchCompanyApplications() {
+          try {
+            const query = this.toQuery(this.companyApplicationFilters);
+            const data = await this.requestJson(`/api/company/applications${query}`, {
+              headers: this.authHeaders()
+            });
+            this.companyApplications = data.applications || [];
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async updateCompanyApplicationStatus(applicationId, status) {
+          const feedback = window.prompt('Enter feedback for applicant (optional):', '') || '';
+          try {
+            await this.requestJson(`/api/company/applications/${applicationId}/status`, {
+              method: 'PATCH',
+              headers: this.authHeaders(),
+              body: JSON.stringify({ status, feedback })
+            });
+            this.message = 'Application status shared with applicant';
+            await this.loadDashboard();
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async scheduleInterviewForApplication(application) {
+          const scheduledAt = window.prompt('Enter interview datetime (YYYY-MM-DDTHH:MM):', '');
+          if (!scheduledAt) return;
+          const interviewMode = (window.prompt('Interview mode (virtual / in_person / phone):', 'virtual') || 'virtual').trim();
+          const meetingLink = window.prompt('Meeting link (optional):', '') || '';
+          const location = window.prompt('Interview location (optional):', '') || '';
+          const notes = window.prompt('Interview notes (optional):', '') || '';
+
+          try {
+            await this.requestJson(`/api/company/applications/${application.id}/interviews`, {
+              method: 'POST',
+              headers: this.authHeaders(),
+              body: JSON.stringify({
+                scheduled_at: scheduledAt,
+                interview_mode: interviewMode,
+                meeting_link: meetingLink,
+                location,
+                notes
+              })
+            });
+            this.message = 'Interview scheduled successfully';
+            this.companySection = 'interviews';
+            await this.loadDashboard();
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async fetchCompanyInterviews() {
+          try {
+            const query = this.toQuery(this.companyInterviewFilters);
+            const data = await this.requestJson(`/api/company/interviews${query}`, {
+              headers: this.authHeaders()
+            });
+            this.companyInterviews = data.interviews || [];
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async updateCompanyInterviewStatus(interviewId, status) {
+          const notes = window.prompt('Update interview notes (optional):', '') || '';
+          try {
+            await this.requestJson(`/api/company/interviews/${interviewId}/status`, {
+              method: 'PATCH',
+              headers: this.authHeaders(),
+              body: JSON.stringify({ status, notes })
+            });
+            this.message = 'Interview status updated';
+            await this.loadDashboard();
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
         logout() {
           localStorage.removeItem('ppa_token');
           this.token = '';
@@ -753,6 +1156,9 @@
           this.students = [];
           this.drives = [];
           this.applications = [];
+          this.companyJobs = [];
+          this.companyApplications = [];
+          this.companyInterviews = [];
           window.location.hash = '';
           this.message = 'Logged out successfully.';
         }

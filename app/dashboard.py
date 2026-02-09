@@ -51,10 +51,18 @@ def company_dashboard():
     company = user.company_profile
     if not company:
         return jsonify({"error": "Company profile not found"}), 404
+    if company.approval_status != CompanyApprovalStatus.APPROVED:
+        return jsonify({"error": "Company is not approved by admin"}), 403
+    if not company.is_active or not user.is_active or user.is_blacklisted:
+        return jsonify({"error": "Company account is inactive or blacklisted"}), 403
 
     drives = []
     for drive in company.job_positions:
         applicants_count = Application.query.filter_by(job_id=drive.id).count()
+        shortlisted_count = Application.query.filter_by(
+            job_id=drive.id,
+            status=ApplicationStatus.SHORTLISTED,
+        ).count()
         selected_count = Application.query.filter_by(
             job_id=drive.id,
             status=ApplicationStatus.SELECTED,
@@ -63,12 +71,22 @@ def company_dashboard():
             {
                 "id": drive.id,
                 "title": drive.title,
+                "skills_required": drive.skills_required,
+                "experience_required": drive.experience_required,
+                "benefits": drive.benefits,
                 "status": drive.status.value,
                 "application_deadline": drive.application_deadline.isoformat(),
                 "applicants_count": applicants_count,
+                "shortlisted_count": shortlisted_count,
                 "selected_count": selected_count,
             }
         )
+
+    total_applications = (
+        Application.query.join(JobPosition)
+        .filter(JobPosition.company_id == company.id)
+        .count()
+    )
 
     return jsonify(
         {
@@ -79,6 +97,26 @@ def company_dashboard():
                 "industry": company.industry,
                 "location": company.location,
                 "approval_status": company.approval_status.value,
+            },
+            "summary": {
+                "job_postings": len(drives),
+                "received_applications": total_applications,
+                "shortlisted_candidates": (
+                    Application.query.join(JobPosition)
+                    .filter(
+                        JobPosition.company_id == company.id,
+                        Application.status == ApplicationStatus.SHORTLISTED,
+                    )
+                    .count()
+                ),
+                "selected_candidates": (
+                    Application.query.join(JobPosition)
+                    .filter(
+                        JobPosition.company_id == company.id,
+                        Application.status == ApplicationStatus.SELECTED,
+                    )
+                    .count()
+                ),
             },
             "drives": drives,
         }
@@ -120,7 +158,16 @@ def student_dashboard():
             "job_title": application.job_position.title,
             "company_name": application.job_position.company.company_name,
             "status": application.status.value,
+            "company_feedback": application.company_feedback,
             "applied_at": application.applied_at.isoformat(),
+            "latest_interview_at": (
+                max(
+                    [interview.scheduled_at for interview in application.interviews],
+                    default=None,
+                ).isoformat()
+                if application.interviews
+                else None
+            ),
         }
         for application in student.applications
     ]

@@ -91,6 +91,8 @@ def _serialize_drive(drive: JobPosition):
         "description": drive.description,
         "salary": float(drive.salary) if drive.salary is not None else None,
         "skills_required": drive.skills_required,
+        "experience_required": drive.experience_required,
+        "benefits": drive.benefits,
         "minimum_cgpa": drive.minimum_cgpa,
         "application_deadline": drive.application_deadline.isoformat(),
         "status": drive.status.value,
@@ -114,6 +116,8 @@ def _serialize_application(application: Application):
         "company_id": company.id if company else None,
         "company_name": company.company_name if company else None,
         "status": application.status.value,
+        "company_feedback": application.company_feedback,
+        "interviews_count": len(application.interviews),
         "applied_at": application.applied_at.isoformat(),
         "updated_at": application.updated_at.isoformat(),
     }

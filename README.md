@@ -10,6 +10,7 @@ This repository currently includes:
 - JWT authentication and role-based dashboard APIs
 - Vue + Bootstrap authentication UI (served by Flask)
 - Admin management APIs for companies, students, drives, and applications
+- Company dashboard and job/application/interview management APIs
 
 ## Database Models
 - `User` (roles: `admin`, `company`, `student`)
@@ -17,6 +18,7 @@ This repository currently includes:
 - `Student` (profile + education + skills + resume)
 - `JobPosition` (drive/job details created by company)
 - `Application` (student application to a job/drive)
+- `Interview` (company interview scheduling for shortlisted candidates)
 - `Placement` (final placement record)
 
 ## Key Relationships
@@ -87,6 +89,16 @@ This repository currently includes:
 - `GET /api/admin/applications`
 - `PATCH /api/admin/applications/<application_id>/status`
 - `DELETE /api/admin/applications/<application_id>`
+- `GET /api/company/overview`
+- `POST /api/company/jobs`
+- `GET /api/company/jobs`
+- `PATCH /api/company/jobs/<job_id>/status`
+- `GET /api/company/jobs/<job_id>/applications`
+- `GET /api/company/applications`
+- `PATCH /api/company/applications/<application_id>/status`
+- `POST /api/company/applications/<application_id>/interviews`
+- `GET /api/company/interviews`
+- `PATCH /api/company/interviews/<interview_id>/status`
 - `GET /api/dashboard/admin`
 - `GET /api/dashboard/company`
 - `GET /api/dashboard/student`
@@ -95,4 +107,5 @@ This repository currently includes:
 - Milestone 0: Repository setup ✅
 - Milestone 1: DB models and schema setup ✅
 - Milestone 2: Authentication + RBAC ✅
-- Milestone 3 (in progress): Admin dashboard and management
+- Milestone 3: Admin dashboard and management ✅
+- Milestone 4: Company dashboard and job/application management ✅

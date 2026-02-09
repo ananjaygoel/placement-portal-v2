@@ -36,6 +36,12 @@ class ApplicationStatus(str, Enum):
     REJECTED = "rejected"
 
 
+class InterviewStatus(str, Enum):
+    SCHEDULED = "scheduled"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
 class User(db.Model):
     __tablename__ = "users"
 
@@ -98,6 +104,11 @@ class Company(db.Model):
         back_populates="company",
         cascade="all, delete-orphan",
     )
+    interviews = db.relationship(
+        "Interview",
+        back_populates="company",
+        cascade="all, delete-orphan",
+    )
     placements = db.relationship("Placement", back_populates="company")
 
 
@@ -141,6 +152,8 @@ class JobPosition(db.Model):
     description = db.Column(db.Text)
     salary = db.Column(db.Numeric(12, 2))
     skills_required = db.Column(db.Text)
+    experience_required = db.Column(db.String(120))
+    benefits = db.Column(db.Text)
     eligibility_branch = db.Column(db.String(120), index=True)
     minimum_cgpa = db.Column(db.Float)
     minimum_graduation_year = db.Column(db.Integer)
@@ -184,6 +197,7 @@ class Application(db.Model):
         nullable=False,
         index=True,
     )
+    company_feedback = db.Column(db.Text)
     notes = db.Column(db.Text)
     updated_at = db.Column(
         db.DateTime,
@@ -195,6 +209,50 @@ class Application(db.Model):
     student = db.relationship("Student", back_populates="applications")
     job_position = db.relationship("JobPosition", back_populates="applications")
     placement = db.relationship("Placement", back_populates="application", uselist=False)
+    interviews = db.relationship(
+        "Interview",
+        back_populates="application",
+        cascade="all, delete-orphan",
+    )
+
+
+class Interview(db.Model):
+    __tablename__ = "interviews"
+
+    id = db.Column(db.Integer, primary_key=True)
+    application_id = db.Column(
+        db.Integer,
+        db.ForeignKey("applications.id"),
+        nullable=False,
+        index=True,
+    )
+    company_id = db.Column(
+        db.Integer,
+        db.ForeignKey("companies.id"),
+        nullable=False,
+        index=True,
+    )
+    scheduled_at = db.Column(db.DateTime, nullable=False, index=True)
+    interview_mode = db.Column(db.String(50), nullable=False, default="virtual")
+    meeting_link = db.Column(db.String(255))
+    location = db.Column(db.String(255))
+    notes = db.Column(db.Text)
+    status = db.Column(
+        SAEnum(InterviewStatus, native_enum=False),
+        default=InterviewStatus.SCHEDULED,
+        nullable=False,
+        index=True,
+    )
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = db.Column(
+        db.DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    application = db.relationship("Application", back_populates="interviews")
+    company = db.relationship("Company", back_populates="interviews")
 
 
 class Placement(db.Model):
