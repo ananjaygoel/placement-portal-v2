@@ -14,12 +14,14 @@ def create_app(config_class: type[Config] = Config) -> Flask:
     from app.auth import auth_bp
     from app.company import company_bp
     from app.dashboard import dashboard_bp
+    from app.student import student_bp
     from app.views import views_bp
 
     app.register_blueprint(admin_bp, url_prefix="/api/admin")
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(company_bp, url_prefix="/api/company")
     app.register_blueprint(dashboard_bp, url_prefix="/api/dashboard")
+    app.register_blueprint(student_bp, url_prefix="/api/student")
     app.register_blueprint(views_bp)
 
     return app

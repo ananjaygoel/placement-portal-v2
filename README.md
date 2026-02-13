@@ -11,6 +11,7 @@ This repository currently includes:
 - Vue + Bootstrap authentication UI (served by Flask)
 - Admin management APIs for companies, students, drives, and applications
 - Company dashboard and job/application/interview management APIs
+- Student dashboard with profile, job search/apply, tracking, and document download
 
 ## Database Models
 - `User` (roles: `admin`, `company`, `student`)
@@ -99,6 +100,14 @@ This repository currently includes:
 - `POST /api/company/applications/<application_id>/interviews`
 - `GET /api/company/interviews`
 - `PATCH /api/company/interviews/<interview_id>/status`
+- `GET /api/student/overview`
+- `PATCH /api/student/profile`
+- `GET /api/student/jobs`
+- `POST /api/student/jobs/<job_id>/apply`
+- `GET /api/student/applications`
+- `GET /api/student/interviews`
+- `GET /api/student/applications/<application_id>/offer-letter`
+- `GET /api/student/applications/<application_id>/placement-confirmation`
 - `GET /api/dashboard/admin`
 - `GET /api/dashboard/company`
 - `GET /api/dashboard/student`
@@ -109,3 +118,4 @@ This repository currently includes:
 - Milestone 2: Authentication + RBAC ✅
 - Milestone 3: Admin dashboard and management ✅
 - Milestone 4: Company dashboard and job/application management ✅
+- Milestone 5: Student dashboard and job application system ✅

@@ -36,6 +36,7 @@ def register_student():
         user=user,
         full_name=full_name,
         education=(payload.get("education") or "").strip() or None,
+        experience=(payload.get("experience") or "").strip() or None,
         contact_number=(payload.get("contact_number") or "").strip() or None,
         branch=(payload.get("branch") or "").strip() or None,
         graduation_year=payload.get("graduation_year"),
@@ -157,6 +158,8 @@ def me():
         response["student"] = {
             "id": user.student_profile.id,
             "full_name": user.student_profile.full_name,
+            "education": user.student_profile.education,
+            "experience": user.student_profile.experience,
             "contact_number": user.student_profile.contact_number,
             "branch": user.student_profile.branch,
             "graduation_year": user.student_profile.graduation_year,

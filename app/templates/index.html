@@ -592,24 +592,229 @@
         </div>
 
         <div v-if="currentUser.role === 'student'">
-          <h5>Student Dashboard</h5>
-          <p class="mb-2"><strong>{{ dashboard.student.full_name }}</strong> | {{ dashboard.student.branch || 'N/A' }} | Contact: {{ dashboard.student.contact_number || 'N/A' }} | CGPA: {{ dashboard.student.cgpa ?? 'N/A' }}</p>
-          <h6 class="mt-3">Approved Drives</h6>
-          <ul class="list-group mb-3">
-            <li v-for="drive in dashboard.approved_drives" :key="drive.id" class="list-group-item">
-              {{ drive.company_name }} - {{ drive.title }} (Deadline: {{ drive.application_deadline }})
-            </li>
-            <li v-if="dashboard.approved_drives.length === 0" class="list-group-item text-center">No approved drives available</li>
-          </ul>
-          <h6>Application History</h6>
-          <ul class="list-group">
-            <li v-for="item in dashboard.application_history" :key="item.application_id" class="list-group-item">
-              {{ item.company_name }} - {{ item.job_title }} | {{ item.status }} | {{ item.applied_at }}
-              <span v-if="item.company_feedback"> | Feedback: {{ item.company_feedback }}</span>
-              <span v-if="item.latest_interview_at"> | Interview: {{ item.latest_interview_at }}</span>
-            </li>
-            <li v-if="dashboard.application_history.length === 0" class="list-group-item text-center">No applications yet</li>
-          </ul>
+          <h5>Student Dashboard & Job Application System</h5>
+          <p class="mb-2">
+            <strong>{{ dashboard.student.full_name }}</strong> |
+            {{ dashboard.student.branch || 'N/A' }} |
+            Contact: {{ dashboard.student.contact_number || 'N/A' }} |
+            CGPA: {{ dashboard.student.cgpa ?? 'N/A' }}
+          </p>
+          <div class="row g-3 mt-1">
+            <div class="col-md-4"><div class="alert alert-secondary mb-0">Available Jobs: {{ dashboard.summary.available_jobs }}</div></div>
+            <div class="col-md-4"><div class="alert alert-secondary mb-0">Applied Jobs: {{ dashboard.summary.applied_jobs }}</div></div>
+            <div class="col-md-4"><div class="alert alert-info mb-0">Interviews: {{ dashboard.summary.scheduled_interviews }}</div></div>
+          </div>
+
+          <div class="d-flex gap-2 flex-wrap mt-4">
+            <button class="btn btn-sm" :class="studentSection === 'profile' ? 'btn-primary' : 'btn-outline-primary'" @click="studentSection='profile'">Profile</button>
+            <button class="btn btn-sm" :class="studentSection === 'jobs' ? 'btn-primary' : 'btn-outline-primary'" @click="studentSection='jobs'">Jobs</button>
+            <button class="btn btn-sm" :class="studentSection === 'applications' ? 'btn-primary' : 'btn-outline-primary'" @click="studentSection='applications'">Applications</button>
+            <button class="btn btn-sm" :class="studentSection === 'interviews' ? 'btn-primary' : 'btn-outline-primary'" @click="studentSection='interviews'">Interviews</button>
+          </div>
+
+          <div v-if="studentSection === 'profile'" class="mt-3">
+            <h6>Update Profile</h6>
+            <form class="card card-body" @submit.prevent="updateStudentProfile">
+              <div class="row g-2">
+                <div class="col-md-6">
+                  <label class="form-label">Full Name</label>
+                  <input v-model="studentProfileForm.full_name" class="form-control form-control-sm" required>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Contact Number</label>
+                  <input v-model="studentProfileForm.contact_number" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Education</label>
+                  <input v-model="studentProfileForm.education" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Branch</label>
+                  <input v-model="studentProfileForm.branch" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Graduation Year</label>
+                  <input v-model.number="studentProfileForm.graduation_year" type="number" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">CGPA</label>
+                  <input v-model.number="studentProfileForm.cgpa" step="0.01" type="number" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-4">
+                  <label class="form-label">Resume URL</label>
+                  <input v-model="studentProfileForm.resume_url" class="form-control form-control-sm">
+                </div>
+                <div class="col-md-12">
+                  <label class="form-label">Skills</label>
+                  <textarea v-model="studentProfileForm.skills" class="form-control form-control-sm" rows="2"></textarea>
+                </div>
+                <div class="col-md-12">
+                  <label class="form-label">Experience</label>
+                  <textarea v-model="studentProfileForm.experience" class="form-control form-control-sm" rows="2"></textarea>
+                </div>
+              </div>
+              <div class="mt-3 d-flex justify-content-end">
+                <button class="btn btn-sm btn-primary">Save Profile</button>
+              </div>
+            </form>
+          </div>
+
+          <div v-if="studentSection === 'jobs'" class="mt-3">
+            <h6>Search Job Postings</h6>
+            <div class="row g-2 mb-3">
+              <div class="col-md-4">
+                <input v-model="studentJobFilters.q" class="form-control form-control-sm" placeholder="Search by company / title / skills">
+              </div>
+              <div class="col-md-3">
+                <input v-model="studentJobFilters.company" class="form-control form-control-sm" placeholder="Company name">
+              </div>
+              <div class="col-md-3">
+                <input v-model="studentJobFilters.skills" class="form-control form-control-sm" placeholder="Required skills">
+              </div>
+              <div class="col-md-2 d-grid">
+                <button class="btn btn-sm btn-primary" @click="fetchStudentJobs">Search</button>
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-bordered table-sm align-middle">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Company</th>
+                    <th>Position</th>
+                    <th>Skills</th>
+                    <th>Experience</th>
+                    <th>Salary</th>
+                    <th>Deadline</th>
+                    <th>Eligibility</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="job in studentJobs" :key="job.id">
+                    <td>{{ job.id }}</td>
+                    <td>{{ job.company_name }}</td>
+                    <td>{{ job.title }}</td>
+                    <td>{{ job.skills_required }}</td>
+                    <td>{{ job.experience_required }}</td>
+                    <td>{{ job.salary ?? 'N/A' }}</td>
+                    <td>{{ job.application_deadline }}</td>
+                    <td>
+                      <span v-if="job.is_eligible" class="text-success">Eligible</span>
+                      <span v-else class="text-danger">Not Eligible</span>
+                      <div v-if="!job.is_eligible && job.eligibility_reasons.length" class="small text-muted">
+                        {{ job.eligibility_reasons.join('; ') }}
+                      </div>
+                    </td>
+                    <td>
+                      <button v-if="!job.already_applied" class="btn btn-sm btn-primary" :disabled="!job.is_eligible" @click="applyToStudentJob(job.id)">Apply</button>
+                      <span v-else class="badge bg-secondary">Applied ({{ job.application_status }})</span>
+                    </td>
+                  </tr>
+                  <tr v-if="studentJobs.length === 0"><td colspan="9" class="text-center">No jobs found</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div v-if="studentSection === 'applications'" class="mt-3">
+            <h6>Applied Jobs & Status Tracking</h6>
+            <div class="row g-2 mb-3">
+              <div class="col-md-8">
+                <input v-model="studentApplicationFilters.q" class="form-control form-control-sm" placeholder="Search by company or position">
+              </div>
+              <div class="col-md-2">
+                <select v-model="studentApplicationFilters.status" class="form-select form-select-sm">
+                  <option value="">All statuses</option>
+                  <option value="applied">Applied</option>
+                  <option value="shortlisted">Shortlisted</option>
+                  <option value="selected">Selected</option>
+                  <option value="rejected">Rejected</option>
+                </select>
+              </div>
+              <div class="col-md-2 d-grid">
+                <button class="btn btn-sm btn-primary" @click="fetchStudentApplications">Search</button>
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-bordered table-sm align-middle">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Company</th>
+                    <th>Position</th>
+                    <th>Status</th>
+                    <th>Feedback</th>
+                    <th>Latest Interview</th>
+                    <th>Downloads</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="application in studentApplications" :key="application.id">
+                    <td>{{ application.id }}</td>
+                    <td>{{ application.company_name }}</td>
+                    <td>{{ application.job_title }}</td>
+                    <td>{{ application.status }}</td>
+                    <td>{{ application.company_feedback || 'N/A' }}</td>
+                    <td>{{ application.latest_interview ? application.latest_interview.scheduled_at : 'N/A' }}</td>
+                    <td class="d-flex flex-wrap gap-1">
+                      <button v-if="application.offer_letter_available" class="btn btn-sm btn-success" @click="downloadStudentDocument(application.id, 'offer-letter')">Offer Letter</button>
+                      <button v-if="application.placement_confirmation_available" class="btn btn-sm btn-outline-success" @click="downloadStudentDocument(application.id, 'placement-confirmation')">Placement Confirmation</button>
+                    </td>
+                  </tr>
+                  <tr v-if="studentApplications.length === 0"><td colspan="7" class="text-center">No applications found</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div v-if="studentSection === 'interviews'" class="mt-3">
+            <h6>Interview Schedules</h6>
+            <div class="row g-2 mb-3">
+              <div class="col-md-4">
+                <select v-model="studentInterviewFilters.status" class="form-select form-select-sm">
+                  <option value="">All statuses</option>
+                  <option value="scheduled">Scheduled</option>
+                  <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </div>
+              <div class="col-md-8 d-grid">
+                <button class="btn btn-sm btn-primary" @click="fetchStudentInterviews">Search</button>
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-bordered table-sm align-middle">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Company</th>
+                    <th>Position</th>
+                    <th>Scheduled At</th>
+                    <th>Mode</th>
+                    <th>Status</th>
+                    <th>Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="interview in studentInterviews" :key="interview.id">
+                    <td>{{ interview.id }}</td>
+                    <td>{{ interview.company_name }}</td>
+                    <td>{{ interview.job_title }}</td>
+                    <td>{{ interview.scheduled_at }}</td>
+                    <td>{{ interview.interview_mode }}</td>
+                    <td>{{ interview.status }}</td>
+                    <td>
+                      <span v-if="interview.meeting_link">Link: {{ interview.meeting_link }}</span>
+                      <span v-else-if="interview.location">Location: {{ interview.location }}</span>
+                      <span v-else>N/A</span>
+                    </td>
+                  </tr>
+                  <tr v-if="studentInterviews.length === 0"><td colspan="7" class="text-center">No interviews found</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -625,6 +830,7 @@
           mode: 'login',
           adminSection: 'companies',
           companySection: 'jobs',
+          studentSection: 'jobs',
           loading: false,
           message: '',
           error: '',
@@ -638,6 +844,9 @@
           companyJobs: [],
           companyApplications: [],
           companyInterviews: [],
+          studentJobs: [],
+          studentApplications: [],
+          studentInterviews: [],
           companyFilters: {
             q: '',
             industry: '',
@@ -667,6 +876,18 @@
             status: '',
             job_id: ''
           },
+          studentJobFilters: {
+            q: '',
+            company: '',
+            skills: ''
+          },
+          studentApplicationFilters: {
+            q: '',
+            status: ''
+          },
+          studentInterviewFilters: {
+            status: ''
+          },
           companyJobForm: {
             title: '',
             description: '',
@@ -678,6 +899,17 @@
             eligibility_branch: '',
             minimum_cgpa: null,
             minimum_graduation_year: null
+          },
+          studentProfileForm: {
+            full_name: '',
+            education: '',
+            experience: '',
+            skills: '',
+            resume_url: '',
+            branch: '',
+            graduation_year: null,
+            cgpa: null,
+            contact_number: ''
           },
           loginForm: { email: '', password: '' },
           studentForm: {
@@ -810,13 +1042,17 @@
               ? '/api/admin/overview'
               : this.currentUser.role === 'company'
                 ? '/api/company/overview'
-                : `/api/dashboard/${this.currentUser.role}`;
+                : '/api/student/overview';
             this.dashboard = await this.requestJson(endpoint, { headers: this.authHeaders() });
             if (this.currentUser.role === 'admin') {
               await this.loadAdminManagementData();
             }
             if (this.currentUser.role === 'company') {
               await this.loadCompanyManagementData();
+            }
+            if (this.currentUser.role === 'student') {
+              this.syncStudentProfileForm();
+              await this.loadStudentManagementData();
             }
           } catch (err) {
             this.error = err.message;
@@ -835,6 +1071,27 @@
             this.fetchCompanyJobs(),
             this.fetchCompanyApplications(),
             this.fetchCompanyInterviews()
+          ]);
+        },
+        syncStudentProfileForm() {
+          if (!this.dashboard || !this.dashboard.student) return;
+          this.studentProfileForm = {
+            full_name: this.dashboard.student.full_name || '',
+            education: this.dashboard.student.education || '',
+            experience: this.dashboard.student.experience || '',
+            skills: this.dashboard.student.skills || '',
+            resume_url: this.dashboard.student.resume_url || '',
+            branch: this.dashboard.student.branch || '',
+            graduation_year: this.dashboard.student.graduation_year,
+            cgpa: this.dashboard.student.cgpa,
+            contact_number: this.dashboard.student.contact_number || ''
+          };
+        },
+        async loadStudentManagementData() {
+          await Promise.all([
+            this.fetchStudentJobs(),
+            this.fetchStudentApplications(),
+            this.fetchStudentInterviews()
           ]);
         },
         async fetchCompanies() {
@@ -1147,6 +1404,89 @@
             this.error = err.message;
           }
         },
+        async updateStudentProfile() {
+          try {
+            await this.requestJson('/api/student/profile', {
+              method: 'PATCH',
+              headers: this.authHeaders(),
+              body: JSON.stringify(this.studentProfileForm)
+            });
+            this.message = 'Student profile updated';
+            await this.loadDashboard();
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async fetchStudentJobs() {
+          try {
+            const query = this.toQuery(this.studentJobFilters);
+            const data = await this.requestJson(`/api/student/jobs${query}`, {
+              headers: this.authHeaders()
+            });
+            this.studentJobs = data.jobs || [];
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async applyToStudentJob(jobId) {
+          try {
+            await this.requestJson(`/api/student/jobs/${jobId}/apply`, {
+              method: 'POST',
+              headers: this.authHeaders()
+            });
+            this.message = 'Application submitted successfully';
+            this.studentSection = 'applications';
+            await this.loadDashboard();
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async fetchStudentApplications() {
+          try {
+            const query = this.toQuery(this.studentApplicationFilters);
+            const data = await this.requestJson(`/api/student/applications${query}`, {
+              headers: this.authHeaders()
+            });
+            this.studentApplications = data.applications || [];
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async fetchStudentInterviews() {
+          try {
+            const query = this.toQuery(this.studentInterviewFilters);
+            const data = await this.requestJson(`/api/student/interviews${query}`, {
+              headers: this.authHeaders()
+            });
+            this.studentInterviews = data.interviews || [];
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async downloadStudentDocument(applicationId, documentType) {
+          try {
+            const response = await fetch(`/api/student/applications/${applicationId}/${documentType}`, {
+              headers: this.authHeaders()
+            });
+            if (!response.ok) {
+              const payload = await response.json().catch(() => ({}));
+              throw new Error(payload.error || 'Unable to download document');
+            }
+            const blob = await response.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = downloadUrl;
+            anchor.download = documentType === 'offer-letter'
+              ? `offer_letter_application_${applicationId}.txt`
+              : `placement_confirmation_application_${applicationId}.txt`;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            window.URL.revokeObjectURL(downloadUrl);
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
         logout() {
           localStorage.removeItem('ppa_token');
           this.token = '';
@@ -1159,6 +1499,9 @@
           this.companyJobs = [];
           this.companyApplications = [];
           this.companyInterviews = [];
+          this.studentJobs = [];
+          this.studentApplications = [];
+          this.studentInterviews = [];
           window.location.hash = '';
           this.message = 'Logged out successfully.';
         }

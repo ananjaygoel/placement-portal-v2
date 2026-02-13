@@ -68,6 +68,7 @@ def _serialize_student(student: Student):
         "user_id": student.user_id,
         "full_name": student.full_name,
         "education": student.education,
+        "experience": student.experience,
         "branch": student.branch,
         "graduation_year": student.graduation_year,
         "cgpa": student.cgpa,

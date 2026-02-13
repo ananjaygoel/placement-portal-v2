@@ -178,6 +178,8 @@ def student_dashboard():
             "student": {
                 "id": student.id,
                 "full_name": student.full_name,
+                "education": student.education,
+                "experience": student.experience,
                 "contact_number": student.contact_number,
                 "branch": student.branch,
                 "graduation_year": student.graduation_year,
