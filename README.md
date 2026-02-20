@@ -12,6 +12,7 @@ This repository currently includes:
 - Admin management APIs for companies, students, drives, and applications
 - Company dashboard and job/application/interview management APIs
 - Student dashboard with profile, job search/apply, tracking, and document download
+- Placement tracking with full status history and placement timeline
 
 ## Database Models
 - `User` (roles: `admin`, `company`, `student`)
@@ -19,6 +20,7 @@ This repository currently includes:
 - `Student` (profile + education + skills + resume)
 - `JobPosition` (drive/job details created by company)
 - `Application` (student application to a job/drive)
+- `ApplicationStatusHistory` (audit trail of every status transition)
 - `Interview` (company interview scheduling for shortlisted candidates)
 - `Placement` (final placement record)
 
@@ -66,6 +68,7 @@ This repository currently includes:
 - Admin: predefined user only (no registration endpoint).
 - Student: self-registration + login.
 - Company: registration allowed, login allowed only after admin approval (`approved` status).
+- Application status workflow: `applied -> shortlisted -> interview -> offer -> placed` (or `rejected`).
 - On login, UI redirects to role-specific dashboards:
   - `#admin-dashboard`
   - `#company-dashboard`
@@ -82,6 +85,7 @@ This repository currently includes:
 - `PATCH /api/admin/companies/<company_id>/status`
 - `DELETE /api/admin/companies/<company_id>`
 - `GET /api/admin/students`
+- `GET /api/admin/students/<student_id>`
 - `PATCH /api/admin/students/<student_id>/status`
 - `DELETE /api/admin/students/<student_id>`
 - `GET /api/admin/drives`
@@ -96,6 +100,7 @@ This repository currently includes:
 - `PATCH /api/company/jobs/<job_id>/status`
 - `GET /api/company/jobs/<job_id>/applications`
 - `GET /api/company/applications`
+- `GET /api/company/students/<student_id>`
 - `PATCH /api/company/applications/<application_id>/status`
 - `POST /api/company/applications/<application_id>/interviews`
 - `GET /api/company/interviews`
@@ -119,3 +124,4 @@ This repository currently includes:
 - Milestone 3: Admin dashboard and management ✅
 - Milestone 4: Company dashboard and job/application management ✅
 - Milestone 5: Student dashboard and job application system ✅
+- Milestone 6: Job application history and status tracking ✅

@@ -6,6 +6,12 @@ from decimal import Decimal, InvalidOperation
 from flask import Blueprint, g, jsonify, request
 from sqlalchemy import or_
 
+from app.application_tracking import (
+    parse_iso_date,
+    parse_salary as parse_offer_salary,
+    serialize_status_history,
+    update_application_status as apply_application_status_update,
+)
 from app.extensions import db
 from app.models import (
     Application,
@@ -118,6 +124,27 @@ def _serialize_application(application: Application):
         "company_feedback": application.company_feedback,
         "applied_at": application.applied_at.isoformat(),
         "updated_at": application.updated_at.isoformat(),
+        "status_history": [
+            serialize_status_history(record)
+            for record in sorted(
+                application.status_history,
+                key=lambda history: history.changed_at,
+            )
+        ],
+        "placement": (
+            {
+                "id": application.placement.id,
+                "position_title": application.placement.position_title,
+                "salary": (
+                    float(application.placement.salary)
+                    if application.placement.salary is not None
+                    else None
+                ),
+                "joining_date": application.placement.joining_date.isoformat(),
+            }
+            if application.placement
+            else None
+        ),
         "latest_interview": _serialize_interview(latest_interview) if latest_interview else None,
         "interviews": [_serialize_interview(interview) for interview in interviews],
     }
@@ -128,10 +155,18 @@ def _serialize_job(job: JobPosition):
     shortlisted_count = sum(
         1
         for application in applications
-        if application.status in {ApplicationStatus.SHORTLISTED, ApplicationStatus.SELECTED}
+        if application.status in {
+            ApplicationStatus.SHORTLISTED,
+            ApplicationStatus.INTERVIEW,
+        }
     )
-    selected_count = sum(
-        1 for application in applications if application.status == ApplicationStatus.SELECTED
+    offered_count = sum(
+        1
+        for application in applications
+        if application.status in {ApplicationStatus.OFFER, ApplicationStatus.SELECTED}
+    )
+    placed_count = sum(
+        1 for application in applications if application.status == ApplicationStatus.PLACED
     )
     return {
         "id": job.id,
@@ -149,7 +184,9 @@ def _serialize_job(job: JobPosition):
         "status": job.status.value,
         "applications_count": len(applications),
         "shortlisted_count": shortlisted_count,
-        "selected_count": selected_count,
+        "offered_count": offered_count,
+        "placed_count": placed_count,
+        "selected_count": offered_count,
         "created_at": job.created_at.isoformat(),
         "updated_at": job.updated_at.isoformat(),
     }
@@ -217,10 +254,22 @@ def company_overview():
                 ),
                 "received_applications": application_query.count(),
                 "shortlisted_candidates": application_query.filter(
-                    Application.status == ApplicationStatus.SHORTLISTED
+                    Application.status.in_(
+                        [ApplicationStatus.SHORTLISTED, ApplicationStatus.INTERVIEW]
+                    )
+                ).count(),
+                "offered_candidates": application_query.filter(
+                    Application.status.in_(
+                        [ApplicationStatus.OFFER, ApplicationStatus.SELECTED]
+                    )
                 ).count(),
                 "selected_candidates": application_query.filter(
-                    Application.status == ApplicationStatus.SELECTED
+                    Application.status.in_(
+                        [ApplicationStatus.OFFER, ApplicationStatus.SELECTED]
+                    )
+                ).count(),
+                "placed_candidates": application_query.filter(
+                    Application.status == ApplicationStatus.PLACED
                 ).count(),
                 "rejected_candidates": application_query.filter(
                     Application.status == ApplicationStatus.REJECTED
@@ -421,6 +470,49 @@ def list_company_applications():
     )
 
 
+@company_bp.get("/students/<int:student_id>")
+@token_required(UserRole.COMPANY)
+def get_student_profile(student_id: int):
+    company, error_response = _ensure_company_access()
+    if error_response:
+        return error_response
+
+    student = db.session.get(Student, student_id)
+    if not student:
+        return jsonify({"error": "Student not found"}), 404
+
+    applications = (
+        Application.query.join(JobPosition, Application.job_id == JobPosition.id)
+        .filter(
+            Application.student_id == student.id,
+            JobPosition.company_id == company.id,
+        )
+        .order_by(Application.applied_at.desc())
+        .all()
+    )
+    if not applications:
+        return jsonify({"error": "Student has no applications for this company"}), 404
+
+    return jsonify(
+        {
+            "student": {
+                "id": student.id,
+                "full_name": student.full_name,
+                "education": student.education,
+                "experience": student.experience,
+                "skills": student.skills,
+                "resume_url": student.resume_url,
+                "branch": student.branch,
+                "graduation_year": student.graduation_year,
+                "cgpa": student.cgpa,
+                "contact_number": student.contact_number,
+                "email": student.user.email if student.user else None,
+            },
+            "applications": [_serialize_application(application) for application in applications],
+        }
+    )
+
+
 @company_bp.patch("/applications/<int:application_id>/status")
 @token_required(UserRole.COMPANY)
 def update_application_status(application_id: int):
@@ -434,25 +526,41 @@ def update_application_status(application_id: int):
 
     payload = request.get_json(silent=True) or {}
     target_status = _parse_enum(payload.get("status"), ApplicationStatus)
+    if target_status == ApplicationStatus.SELECTED:
+        target_status = ApplicationStatus.OFFER
     if target_status not in {
         ApplicationStatus.SHORTLISTED,
-        ApplicationStatus.SELECTED,
+        ApplicationStatus.INTERVIEW,
+        ApplicationStatus.OFFER,
         ApplicationStatus.REJECTED,
+        ApplicationStatus.PLACED,
     }:
         return jsonify(
-            {"error": "Status must be shortlisted, selected, or rejected"}
+            {"error": "Status must be shortlisted, interview, offer, rejected, or placed"}
         ), 400
 
-    feedback = (payload.get("feedback") or "").strip()
-    if feedback:
-        application.company_feedback = feedback
+    joining_date = parse_iso_date(payload.get("joining_date"))
+    if payload.get("joining_date") is not None and joining_date is None:
+        return jsonify({"error": "joining_date must be in YYYY-MM-DD format"}), 400
 
-    application.status = target_status
+    offered_salary = None
+    if "offered_salary" in payload:
+        offered_salary = parse_offer_salary(payload.get("offered_salary"))
+        if payload.get("offered_salary") not in (None, "") and offered_salary is None:
+            return jsonify({"error": "offered_salary must be a non-negative number"}), 400
 
-    if target_status in {ApplicationStatus.SELECTED, ApplicationStatus.REJECTED}:
-        for interview in application.interviews:
-            if interview.status == InterviewStatus.SCHEDULED:
-                interview.status = InterviewStatus.CANCELLED
+    error_message = apply_application_status_update(
+        application=application,
+        target_status=target_status,
+        changed_by_role=UserRole.COMPANY,
+        changed_by_user_id=g.current_user.id,
+        feedback=payload.get("feedback"),
+        remarks=payload.get("remarks"),
+        joining_date=joining_date,
+        offered_salary=offered_salary,
+    )
+    if error_message:
+        return jsonify({"error": error_message}), 400
 
     db.session.commit()
     return jsonify(
@@ -473,8 +581,13 @@ def schedule_interview(application_id: int):
     application = _application_for_company(company.id, application_id)
     if not application:
         return jsonify({"error": "Application not found"}), 404
-    if application.status != ApplicationStatus.SHORTLISTED:
-        return jsonify({"error": "Only shortlisted applicants can be scheduled"}), 400
+    if application.status not in {
+        ApplicationStatus.SHORTLISTED,
+        ApplicationStatus.INTERVIEW,
+    }:
+        return jsonify(
+            {"error": "Only shortlisted/interview-stage applicants can be scheduled"}
+        ), 400
 
     payload = request.get_json(silent=True) or {}
     scheduled_at = _parse_datetime(payload.get("scheduled_at"))
@@ -498,6 +611,18 @@ def schedule_interview(application_id: int):
         status=InterviewStatus.SCHEDULED,
     )
     db.session.add(interview)
+
+    if application.status in {ApplicationStatus.APPLIED, ApplicationStatus.SHORTLISTED}:
+        error_message = apply_application_status_update(
+            application=application,
+            target_status=ApplicationStatus.INTERVIEW,
+            changed_by_role=UserRole.COMPANY,
+            changed_by_user_id=g.current_user.id,
+            remarks="Interview scheduled",
+        )
+        if error_message:
+            return jsonify({"error": error_message}), 400
+
     db.session.commit()
 
     return jsonify(

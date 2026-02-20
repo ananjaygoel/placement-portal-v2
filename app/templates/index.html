@@ -298,7 +298,9 @@
                   <option value="">All statuses</option>
                   <option value="applied">Applied</option>
                   <option value="shortlisted">Shortlisted</option>
-                  <option value="selected">Selected</option>
+                  <option value="interview">Interview</option>
+                  <option value="offer">Offer</option>
+                  <option value="placed">Placed</option>
                   <option value="rejected">Rejected</option>
                 </select>
               </div>
@@ -330,7 +332,9 @@
                     <td class="d-flex flex-wrap gap-1">
                       <button class="btn btn-outline-primary btn-sm" @click="updateApplicationStatus(application.id, 'applied')">Applied</button>
                       <button class="btn btn-outline-info btn-sm" @click="updateApplicationStatus(application.id, 'shortlisted')">Shortlist</button>
-                      <button class="btn btn-success btn-sm" @click="updateApplicationStatus(application.id, 'selected')">Select</button>
+                      <button class="btn btn-info btn-sm text-white" @click="updateApplicationStatus(application.id, 'interview')">Interview</button>
+                      <button class="btn btn-success btn-sm" @click="updateApplicationStatus(application.id, 'offer')">Offer</button>
+                      <button class="btn btn-outline-success btn-sm" @click="updateApplicationStatus(application.id, 'placed')">Placed</button>
                       <button class="btn btn-warning btn-sm" @click="updateApplicationStatus(application.id, 'rejected')">Reject</button>
                       <button class="btn btn-danger btn-sm" @click="removeApplication(application.id)">Remove</button>
                     </td>
@@ -352,7 +356,8 @@
             <div class="col-md-3"><div class="alert alert-secondary mb-0">Job Postings: {{ dashboard.summary.total_job_postings }}</div></div>
             <div class="col-md-3"><div class="alert alert-secondary mb-0">Applications: {{ dashboard.summary.received_applications }}</div></div>
             <div class="col-md-3"><div class="alert alert-info mb-0">Shortlisted: {{ dashboard.summary.shortlisted_candidates }}</div></div>
-            <div class="col-md-3"><div class="alert alert-success mb-0">Selected: {{ dashboard.summary.selected_candidates }}</div></div>
+            <div class="col-md-3"><div class="alert alert-success mb-0">Offered: {{ dashboard.summary.offered_candidates }}</div></div>
+            <div class="col-md-3"><div class="alert alert-primary mb-0">Placed: {{ dashboard.summary.placed_candidates }}</div></div>
           </div>
 
           <div class="d-flex gap-2 flex-wrap mt-4">
@@ -478,7 +483,9 @@
                   <option value="">All statuses</option>
                   <option value="applied">Applied</option>
                   <option value="shortlisted">Shortlisted</option>
-                  <option value="selected">Selected</option>
+                  <option value="interview">Interview</option>
+                  <option value="offer">Offer</option>
+                  <option value="placed">Placed</option>
                   <option value="rejected">Rejected</option>
                 </select>
               </div>
@@ -500,6 +507,7 @@
                     <th>Status</th>
                     <th>Feedback</th>
                     <th>Latest Interview</th>
+                    <th>Status History</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -512,14 +520,23 @@
                     <td>{{ application.status }}</td>
                     <td>{{ application.company_feedback || 'N/A' }}</td>
                     <td>{{ application.latest_interview ? application.latest_interview.scheduled_at : 'N/A' }}</td>
+                    <td class="small">
+                      <div v-for="history in application.status_history" :key="history.id">
+                        {{ history.new_status }} @ {{ history.changed_at }}
+                      </div>
+                      <span v-if="!application.status_history || application.status_history.length === 0">N/A</span>
+                    </td>
                     <td class="d-flex flex-wrap gap-1">
                       <button class="btn btn-outline-info btn-sm" @click="updateCompanyApplicationStatus(application.id, 'shortlisted')">Shortlist</button>
-                      <button class="btn btn-success btn-sm" @click="updateCompanyApplicationStatus(application.id, 'selected')">Select</button>
+                      <button class="btn btn-info btn-sm text-white" @click="updateCompanyApplicationStatus(application.id, 'interview')">Interview</button>
+                      <button class="btn btn-success btn-sm" @click="updateCompanyApplicationStatus(application.id, 'offer')">Offer</button>
+                      <button class="btn btn-outline-success btn-sm" @click="updateCompanyApplicationStatus(application.id, 'placed')">Placed</button>
                       <button class="btn btn-warning btn-sm" @click="updateCompanyApplicationStatus(application.id, 'rejected')">Reject</button>
-                      <button v-if="application.status === 'shortlisted'" class="btn btn-primary btn-sm" @click="scheduleInterviewForApplication(application)">Schedule Interview</button>
+                      <button v-if="['shortlisted', 'interview'].includes(application.status)" class="btn btn-primary btn-sm" @click="scheduleInterviewForApplication(application)">Schedule Interview</button>
+                      <button class="btn btn-outline-secondary btn-sm" @click="viewCompanyStudentProfile(application.student_id)">Profile</button>
                     </td>
                   </tr>
-                  <tr v-if="companyApplications.length === 0"><td colspan="8" class="text-center">No applications found</td></tr>
+                  <tr v-if="companyApplications.length === 0"><td colspan="9" class="text-center">No applications found</td></tr>
                 </tbody>
               </table>
             </div>
@@ -600,9 +617,11 @@
             CGPA: {{ dashboard.student.cgpa ?? 'N/A' }}
           </p>
           <div class="row g-3 mt-1">
-            <div class="col-md-4"><div class="alert alert-secondary mb-0">Available Jobs: {{ dashboard.summary.available_jobs }}</div></div>
-            <div class="col-md-4"><div class="alert alert-secondary mb-0">Applied Jobs: {{ dashboard.summary.applied_jobs }}</div></div>
-            <div class="col-md-4"><div class="alert alert-info mb-0">Interviews: {{ dashboard.summary.scheduled_interviews }}</div></div>
+            <div class="col-md-3"><div class="alert alert-secondary mb-0">Available Jobs: {{ dashboard.summary.available_jobs }}</div></div>
+            <div class="col-md-3"><div class="alert alert-secondary mb-0">Applied Jobs: {{ dashboard.summary.applied_jobs }}</div></div>
+            <div class="col-md-2"><div class="alert alert-info mb-0">Interviews: {{ dashboard.summary.scheduled_interviews }}</div></div>
+            <div class="col-md-2"><div class="alert alert-success mb-0">Offered: {{ dashboard.summary.offered_jobs }}</div></div>
+            <div class="col-md-2"><div class="alert alert-primary mb-0">Placed: {{ dashboard.summary.placed_jobs }}</div></div>
           </div>
 
           <div class="d-flex gap-2 flex-wrap mt-4">
@@ -728,7 +747,9 @@
                   <option value="">All statuses</option>
                   <option value="applied">Applied</option>
                   <option value="shortlisted">Shortlisted</option>
-                  <option value="selected">Selected</option>
+                  <option value="interview">Interview</option>
+                  <option value="offer">Offer</option>
+                  <option value="placed">Placed</option>
                   <option value="rejected">Rejected</option>
                 </select>
               </div>
@@ -746,6 +767,7 @@
                     <th>Status</th>
                     <th>Feedback</th>
                     <th>Latest Interview</th>
+                    <th>Status History</th>
                     <th>Downloads</th>
                   </tr>
                 </thead>
@@ -757,14 +779,29 @@
                     <td>{{ application.status }}</td>
                     <td>{{ application.company_feedback || 'N/A' }}</td>
                     <td>{{ application.latest_interview ? application.latest_interview.scheduled_at : 'N/A' }}</td>
+                    <td class="small">
+                      <div v-for="history in application.status_history" :key="history.id">
+                        {{ history.new_status }} @ {{ history.changed_at }}
+                      </div>
+                      <span v-if="!application.status_history || application.status_history.length === 0">N/A</span>
+                    </td>
                     <td class="d-flex flex-wrap gap-1">
                       <button v-if="application.offer_letter_available" class="btn btn-sm btn-success" @click="downloadStudentDocument(application.id, 'offer-letter')">Offer Letter</button>
                       <button v-if="application.placement_confirmation_available" class="btn btn-sm btn-outline-success" @click="downloadStudentDocument(application.id, 'placement-confirmation')">Placement Confirmation</button>
                     </td>
                   </tr>
-                  <tr v-if="studentApplications.length === 0"><td colspan="7" class="text-center">No applications found</td></tr>
+                  <tr v-if="studentApplications.length === 0"><td colspan="8" class="text-center">No applications found</td></tr>
                 </tbody>
               </table>
+            </div>
+            <div class="mt-3">
+              <h6>Placement History</h6>
+              <ul class="list-group">
+                <li v-for="placement in dashboard.placement_history" :key="placement.placement_id" class="list-group-item">
+                  {{ placement.company_name }} - {{ placement.position_title }} | Joining: {{ placement.joining_date }} | Salary: {{ placement.salary ?? 'N/A' }}
+                </li>
+                <li v-if="dashboard.placement_history.length === 0" class="list-group-item text-center">No placement history yet</li>
+              </ul>
             </div>
           </div>
 
@@ -1248,11 +1285,31 @@
           }
         },
         async updateApplicationStatus(applicationId, status) {
+          const payload = { status };
+          if (['offer', 'placed'].includes(status)) {
+            const offeredSalary = window.prompt('Enter offered salary (optional):', '');
+            if (offeredSalary !== null && offeredSalary !== '') {
+              payload.offered_salary = offeredSalary;
+            }
+          }
+          if (status === 'placed') {
+            const joiningDate = window.prompt('Enter joining date (YYYY-MM-DD):', '');
+            if (!joiningDate) {
+              this.error = 'joining_date is required for placed status';
+              return;
+            }
+            payload.joining_date = joiningDate;
+          }
+          const feedback = window.prompt('Admin feedback/remarks (optional):', '');
+          if (feedback) {
+            payload.feedback = feedback;
+            payload.remarks = feedback;
+          }
           try {
             await this.requestJson(`/api/admin/applications/${applicationId}/status`, {
               method: 'PATCH',
               headers: this.authHeaders(),
-              body: JSON.stringify({ status })
+              body: JSON.stringify(payload)
             });
             await this.loadDashboard();
             this.message = 'Application status updated';
@@ -1338,13 +1395,47 @@
             this.error = err.message;
           }
         },
+        async viewCompanyStudentProfile(studentId) {
+          try {
+            const data = await this.requestJson(`/api/company/students/${studentId}`, {
+              headers: this.authHeaders()
+            });
+            const profile = data.student;
+            const latest = data.applications[0];
+            window.alert(
+              `Student: ${profile.full_name}\n` +
+              `Email: ${profile.email || 'N/A'}\n` +
+              `Contact: ${profile.contact_number || 'N/A'}\n` +
+              `Education: ${profile.education || 'N/A'}\n` +
+              `Skills: ${profile.skills || 'N/A'}\n` +
+              `Latest Application: ${latest ? latest.job_title + ' (' + latest.status + ')' : 'N/A'}`
+            );
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
         async updateCompanyApplicationStatus(applicationId, status) {
           const feedback = window.prompt('Enter feedback for applicant (optional):', '') || '';
+          const payload = { status, feedback };
+          if (['offer', 'placed'].includes(status)) {
+            const offeredSalary = window.prompt('Enter offered salary (optional):', '');
+            if (offeredSalary !== null && offeredSalary !== '') {
+              payload.offered_salary = offeredSalary;
+            }
+          }
+          if (status === 'placed') {
+            const joiningDate = window.prompt('Enter joining date (YYYY-MM-DD):', '');
+            if (!joiningDate) {
+              this.error = 'joining_date is required for placed status';
+              return;
+            }
+            payload.joining_date = joiningDate;
+          }
           try {
             await this.requestJson(`/api/company/applications/${applicationId}/status`, {
               method: 'PATCH',
               headers: this.authHeaders(),
-              body: JSON.stringify({ status, feedback })
+              body: JSON.stringify(payload)
             });
             this.message = 'Application status shared with applicant';
             await this.loadDashboard();

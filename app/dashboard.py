@@ -63,9 +63,15 @@ def company_dashboard():
             job_id=drive.id,
             status=ApplicationStatus.SHORTLISTED,
         ).count()
-        selected_count = Application.query.filter_by(
+        offered_count = Application.query.filter(
+            Application.job_id == drive.id,
+            Application.status.in_(
+                [ApplicationStatus.OFFER, ApplicationStatus.SELECTED]
+            ),
+        ).count()
+        placed_count = Application.query.filter_by(
             job_id=drive.id,
-            status=ApplicationStatus.SELECTED,
+            status=ApplicationStatus.PLACED,
         ).count()
         drives.append(
             {
@@ -78,7 +84,9 @@ def company_dashboard():
                 "application_deadline": drive.application_deadline.isoformat(),
                 "applicants_count": applicants_count,
                 "shortlisted_count": shortlisted_count,
-                "selected_count": selected_count,
+                "offered_count": offered_count,
+                "placed_count": placed_count,
+                "selected_count": offered_count,
             }
         )
 
@@ -113,7 +121,17 @@ def company_dashboard():
                     Application.query.join(JobPosition)
                     .filter(
                         JobPosition.company_id == company.id,
-                        Application.status == ApplicationStatus.SELECTED,
+                        Application.status.in_(
+                            [ApplicationStatus.OFFER, ApplicationStatus.SELECTED]
+                        ),
+                    )
+                    .count()
+                ),
+                "placed_candidates": (
+                    Application.query.join(JobPosition)
+                    .filter(
+                        JobPosition.company_id == company.id,
+                        Application.status == ApplicationStatus.PLACED,
                     )
                     .count()
                 ),

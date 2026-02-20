@@ -6,6 +6,10 @@ from io import BytesIO
 from flask import Blueprint, g, jsonify, request, send_file
 from sqlalchemy import or_
 
+from app.application_tracking import (
+    append_status_history,
+    serialize_status_history,
+)
 from app.extensions import db
 from app.models import (
     Application,
@@ -154,10 +158,17 @@ def _serialize_application_for_student(application: Application):
     )
     placement = application.placement
     offer_letter_available = (
-        application.status == ApplicationStatus.SELECTED or placement is not None
+        application.status in {
+            ApplicationStatus.OFFER,
+            ApplicationStatus.SELECTED,
+            ApplicationStatus.PLACED,
+        }
+        or placement is not None
     )
     placement_confirmation_available = (
-        placement is not None or application.status == ApplicationStatus.SELECTED
+        placement is not None
+        or application.status
+        in {ApplicationStatus.OFFER, ApplicationStatus.SELECTED, ApplicationStatus.PLACED}
     )
     return {
         "id": application.id,
@@ -173,6 +184,13 @@ def _serialize_application_for_student(application: Application):
         "latest_interview": (
             _serialize_interview_for_student(interviews[-1]) if interviews else None
         ),
+        "status_history": [
+            serialize_status_history(record)
+            for record in sorted(
+                application.status_history,
+                key=lambda history: history.changed_at,
+            )
+        ],
         "offer_letter_available": offer_letter_available,
         "placement_confirmation_available": placement_confirmation_available,
         "placement": (
@@ -213,7 +231,7 @@ def _render_offer_letter(application: Application):
         f"Compensation: {salary_text}",
         f"Expected Joining Date: {joining_date}",
         "",
-        "Congratulations! You have been selected.",
+        "Congratulations! Your application is offered/placed.",
         "Please coordinate with HR for onboarding formalities.",
     ]
     return "\n".join(lines)
@@ -312,12 +330,23 @@ def student_overview():
                 "shortlisted_jobs": sum(
                     1
                     for application in applications
-                    if application.status == ApplicationStatus.SHORTLISTED
+                    if application.status in {
+                        ApplicationStatus.SHORTLISTED,
+                        ApplicationStatus.INTERVIEW,
+                    }
                 ),
-                "selected_jobs": sum(
+                "offered_jobs": sum(
                     1
                     for application in applications
-                    if application.status == ApplicationStatus.SELECTED
+                    if application.status in {
+                        ApplicationStatus.OFFER,
+                        ApplicationStatus.SELECTED,
+                    }
+                ),
+                "placed_jobs": sum(
+                    1
+                    for application in applications
+                    if application.status == ApplicationStatus.PLACED
                 ),
                 "rejected_jobs": sum(
                     1
@@ -333,6 +362,20 @@ def student_overview():
             "recent_applications": [
                 _serialize_application_for_student(application)
                 for application in applications[:10]
+            ],
+            "placement_history": [
+                {
+                    "placement_id": placement.id,
+                    "company_name": placement.company.company_name if placement.company else None,
+                    "position_title": placement.position_title,
+                    "salary": float(placement.salary) if placement.salary is not None else None,
+                    "joining_date": placement.joining_date.isoformat(),
+                }
+                for placement in sorted(
+                    student.placements,
+                    key=lambda placement_record: placement_record.joining_date,
+                    reverse=True,
+                )
             ],
             "upcoming_interviews": [
                 _serialize_interview_for_student(interview)
@@ -485,6 +528,15 @@ def apply_to_job(job_id: int):
         status=ApplicationStatus.APPLIED,
     )
     db.session.add(application)
+    db.session.flush()
+    append_status_history(
+        application=application,
+        previous_status=None,
+        new_status=ApplicationStatus.APPLIED,
+        changed_by_role=UserRole.STUDENT,
+        changed_by_user_id=g.current_user.id,
+        remarks="Application submitted",
+    )
     db.session.commit()
 
     return jsonify(
@@ -576,10 +628,15 @@ def download_offer_letter(application_id: int):
     if not application:
         return jsonify({"error": "Application not found"}), 404
     if (
-        application.status != ApplicationStatus.SELECTED
+        application.status
+        not in {
+            ApplicationStatus.OFFER,
+            ApplicationStatus.SELECTED,
+            ApplicationStatus.PLACED,
+        }
         and application.placement is None
     ):
-        return jsonify({"error": "Offer letter is available only for selected applications"}), 400
+        return jsonify({"error": "Offer letter is available only after offer/placement"}), 400
 
     content = _render_offer_letter(application)
     filename = f"offer_letter_application_{application.id}.txt"
@@ -597,11 +654,16 @@ def download_placement_confirmation(application_id: int):
     if not application:
         return jsonify({"error": "Application not found"}), 404
     if (
-        application.status != ApplicationStatus.SELECTED
+        application.status
+        not in {
+            ApplicationStatus.OFFER,
+            ApplicationStatus.SELECTED,
+            ApplicationStatus.PLACED,
+        }
         and application.placement is None
     ):
         return jsonify(
-            {"error": "Placement confirmation is available after selection"}
+            {"error": "Placement confirmation is available only after offer/placement"}
         ), 400
 
     content = _render_placement_confirmation(application)

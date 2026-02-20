@@ -1,8 +1,14 @@
 from __future__ import annotations
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, g, jsonify, request
 from sqlalchemy import or_
 
+from app.application_tracking import (
+    parse_iso_date,
+    parse_salary,
+    serialize_status_history,
+    update_application_status as apply_application_status_update,
+)
 from app.extensions import db
 from app.models import (
     Application,
@@ -119,6 +125,27 @@ def _serialize_application(application: Application):
         "status": application.status.value,
         "company_feedback": application.company_feedback,
         "interviews_count": len(application.interviews),
+        "status_history": [
+            serialize_status_history(record)
+            for record in sorted(
+                application.status_history,
+                key=lambda history: history.changed_at,
+            )
+        ],
+        "placement": (
+            {
+                "id": application.placement.id,
+                "position_title": application.placement.position_title,
+                "salary": (
+                    float(application.placement.salary)
+                    if application.placement.salary is not None
+                    else None
+                ),
+                "joining_date": application.placement.joining_date.isoformat(),
+            }
+            if application.placement
+            else None
+        ),
         "applied_at": application.applied_at.isoformat(),
         "updated_at": application.updated_at.isoformat(),
     }
@@ -287,6 +314,38 @@ def list_students():
 
     students = query.order_by(Student.created_at.desc()).all()
     return jsonify({"students": [_serialize_student(student) for student in students]})
+
+
+@admin_bp.get("/students/<int:student_id>")
+@token_required(UserRole.ADMIN)
+def get_student(student_id: int):
+    student = db.session.get(Student, student_id)
+    if not student:
+        return jsonify({"error": "Student not found"}), 404
+
+    applications = (
+        Application.query.filter_by(student_id=student.id)
+        .order_by(Application.applied_at.desc())
+        .all()
+    )
+    return jsonify(
+        {
+            "student": _serialize_student(student),
+            "applications": [_serialize_application(application) for application in applications],
+            "placements": [
+                {
+                    "id": placement.id,
+                    "company_id": placement.company_id,
+                    "company_name": placement.company.company_name if placement.company else None,
+                    "job_id": placement.job_id,
+                    "position_title": placement.position_title,
+                    "salary": float(placement.salary) if placement.salary is not None else None,
+                    "joining_date": placement.joining_date.isoformat(),
+                }
+                for placement in student.placements
+            ],
+        }
+    )
 
 
 @admin_bp.patch("/students/<int:student_id>/status")
@@ -467,7 +526,32 @@ def update_application_status(application_id: int):
     if not next_status:
         return jsonify({"error": "Valid status is required"}), 400
 
-    application.status = next_status
+    if next_status == ApplicationStatus.SELECTED:
+        next_status = ApplicationStatus.OFFER
+
+    joining_date = parse_iso_date(payload.get("joining_date"))
+    if payload.get("joining_date") is not None and joining_date is None:
+        return jsonify({"error": "joining_date must be in YYYY-MM-DD format"}), 400
+
+    offered_salary = None
+    if "offered_salary" in payload:
+        offered_salary = parse_salary(payload.get("offered_salary"))
+        if payload.get("offered_salary") not in (None, "") and offered_salary is None:
+            return jsonify({"error": "offered_salary must be a non-negative number"}), 400
+
+    error_message = apply_application_status_update(
+        application=application,
+        target_status=next_status,
+        changed_by_role=UserRole.ADMIN,
+        changed_by_user_id=g.current_user.id,
+        feedback=payload.get("feedback"),
+        remarks=payload.get("remarks"),
+        joining_date=joining_date,
+        offered_salary=offered_salary,
+    )
+    if error_message:
+        return jsonify({"error": error_message}), 400
+
     db.session.commit()
     return jsonify(
         {

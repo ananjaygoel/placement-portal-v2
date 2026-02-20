@@ -32,8 +32,11 @@ class DriveStatus(str, Enum):
 class ApplicationStatus(str, Enum):
     APPLIED = "applied"
     SHORTLISTED = "shortlisted"
-    SELECTED = "selected"
+    INTERVIEW = "interview"
+    OFFER = "offer"
     REJECTED = "rejected"
+    PLACED = "placed"
+    SELECTED = "selected"
 
 
 class InterviewStatus(str, Enum):
@@ -215,6 +218,48 @@ class Application(db.Model):
         back_populates="application",
         cascade="all, delete-orphan",
     )
+    status_history = db.relationship(
+        "ApplicationStatusHistory",
+        back_populates="application",
+        cascade="all, delete-orphan",
+    )
+
+
+class ApplicationStatusHistory(db.Model):
+    __tablename__ = "application_status_history"
+
+    id = db.Column(db.Integer, primary_key=True)
+    application_id = db.Column(
+        db.Integer,
+        db.ForeignKey("applications.id"),
+        nullable=False,
+        index=True,
+    )
+    previous_status = db.Column(
+        SAEnum(ApplicationStatus, native_enum=False),
+        nullable=True,
+    )
+    new_status = db.Column(
+        SAEnum(ApplicationStatus, native_enum=False),
+        nullable=False,
+        index=True,
+    )
+    changed_by_user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id"),
+        nullable=True,
+        index=True,
+    )
+    changed_by_role = db.Column(
+        SAEnum(UserRole, native_enum=False),
+        nullable=False,
+        index=True,
+    )
+    remarks = db.Column(db.Text)
+    changed_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    application = db.relationship("Application", back_populates="status_history")
+    changed_by_user = db.relationship("User")
 
 
 class Interview(db.Model):
