@@ -46,6 +46,8 @@ def main() -> None:
     app = create_app()
 
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
+    Path(app.config["JOB_EXPORT_DIR"]).mkdir(parents=True, exist_ok=True)
+    Path(app.config["JOB_REPORT_DIR"]).mkdir(parents=True, exist_ok=True)
 
     with app.app_context():
         if os.getenv("PPA_RESET_DB", "0") == "1":

@@ -358,6 +358,8 @@
             <div class="col-md-3"><div class="alert alert-info mb-0">Shortlisted: {{ dashboard.summary.shortlisted_candidates }}</div></div>
             <div class="col-md-3"><div class="alert alert-success mb-0">Offered: {{ dashboard.summary.offered_candidates }}</div></div>
             <div class="col-md-3"><div class="alert alert-primary mb-0">Placed: {{ dashboard.summary.placed_candidates }}</div></div>
+            <div class="col-md-3"><div class="alert alert-warning mb-0">Pending Exports: {{ dashboard.summary.pending_exports }}</div></div>
+            <div class="col-md-3"><div class="alert alert-dark mb-0">Unread Notifications: {{ dashboard.summary.unread_notifications }}</div></div>
           </div>
 
           <div class="d-flex gap-2 flex-wrap mt-4">
@@ -365,6 +367,9 @@
             <button class="btn btn-sm" :class="companySection === 'applications' ? 'btn-primary' : 'btn-outline-primary'" @click="companySection='applications'">Applications</button>
             <button class="btn btn-sm" :class="companySection === 'interviews' ? 'btn-primary' : 'btn-outline-primary'" @click="companySection='interviews'">Interviews</button>
             <button class="btn btn-sm" :class="companySection === 'shortlisted' ? 'btn-primary' : 'btn-outline-primary'" @click="companySection='shortlisted'">Shortlisted</button>
+            <button class="btn btn-sm" :class="companySection === 'exports' ? 'btn-primary' : 'btn-outline-primary'" @click="companySection='exports'">CSV Exports</button>
+            <button class="btn btn-sm" :class="companySection === 'reports' ? 'btn-primary' : 'btn-outline-primary'" @click="companySection='reports'">Monthly Reports</button>
+            <button class="btn btn-sm" :class="companySection === 'notifications' ? 'btn-primary' : 'btn-outline-primary'" @click="companySection='notifications'">Notifications</button>
           </div>
 
           <div v-if="companySection === 'jobs'" class="mt-3">
@@ -606,6 +611,101 @@
               <li v-if="dashboard.shortlisted_candidates.length === 0" class="list-group-item text-center">No shortlisted candidates yet</li>
             </ul>
           </div>
+
+          <div v-if="companySection === 'exports'" class="mt-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h6 class="mb-0">Asynchronous CSV Exports</h6>
+              <button class="btn btn-sm btn-primary" @click="requestCompanyExport">Trigger New Export</button>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-bordered table-sm align-middle">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Scope</th>
+                    <th>Status</th>
+                    <th>Rows</th>
+                    <th>Created</th>
+                    <th>Completed</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="job in companyExports" :key="job.id">
+                    <td>{{ job.id }}</td>
+                    <td>{{ job.scope }}</td>
+                    <td>{{ job.status }}</td>
+                    <td>{{ job.row_count ?? 'N/A' }}</td>
+                    <td>{{ job.created_at }}</td>
+                    <td>{{ job.completed_at || 'N/A' }}</td>
+                    <td>
+                      <button v-if="job.status === 'completed'" class="btn btn-sm btn-success" @click="downloadCompanyExport(job.id)">Download</button>
+                    </td>
+                  </tr>
+                  <tr v-if="companyExports.length === 0"><td colspan="7" class="text-center">No exports created yet</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div v-if="companySection === 'reports'" class="mt-3">
+            <h6>Monthly Placement Reports</h6>
+            <div class="row g-2 mb-3">
+              <div class="col-md-5">
+                <input v-model="companyReportFilters.month_label" class="form-control form-control-sm" placeholder="Month label (YYYY-MM)">
+              </div>
+              <div class="col-md-4">
+                <select v-model="companyReportFilters.format" class="form-select form-select-sm">
+                  <option value="">All formats</option>
+                  <option value="html">HTML</option>
+                  <option value="pdf">PDF</option>
+                </select>
+              </div>
+              <div class="col-md-3 d-grid">
+                <button class="btn btn-sm btn-primary" @click="fetchCompanyReports">Search</button>
+              </div>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-bordered table-sm align-middle">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Month</th>
+                    <th>Format</th>
+                    <th>Generated At</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="report in companyReports" :key="report.id">
+                    <td>{{ report.id }}</td>
+                    <td>{{ report.month_label }}</td>
+                    <td>{{ report.format }}</td>
+                    <td>{{ report.generated_at }}</td>
+                    <td>
+                      <button class="btn btn-sm btn-success" @click="downloadCompanyReport(report.id)">Download</button>
+                    </td>
+                  </tr>
+                  <tr v-if="companyReports.length === 0"><td colspan="5" class="text-center">No reports available</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div v-if="companySection === 'notifications'" class="mt-3">
+            <h6>Notifications</h6>
+            <ul class="list-group">
+              <li v-for="notification in companyNotifications" :key="notification.id" class="list-group-item d-flex justify-content-between align-items-start">
+                <div>
+                  <strong>{{ notification.title }}</strong>
+                  <div class="small">{{ notification.message }}</div>
+                  <div class="small text-muted">{{ notification.channel }} | {{ notification.created_at }}</div>
+                </div>
+                <button v-if="!notification.is_read" class="btn btn-sm btn-outline-primary" @click="markCompanyNotificationRead(notification.id)">Mark Read</button>
+              </li>
+              <li v-if="companyNotifications.length === 0" class="list-group-item text-center">No notifications</li>
+            </ul>
+          </div>
         </div>
 
         <div v-if="currentUser.role === 'student'">
@@ -622,6 +722,8 @@
             <div class="col-md-2"><div class="alert alert-info mb-0">Interviews: {{ dashboard.summary.scheduled_interviews }}</div></div>
             <div class="col-md-2"><div class="alert alert-success mb-0">Offered: {{ dashboard.summary.offered_jobs }}</div></div>
             <div class="col-md-2"><div class="alert alert-primary mb-0">Placed: {{ dashboard.summary.placed_jobs }}</div></div>
+            <div class="col-md-3"><div class="alert alert-warning mb-0">Pending Exports: {{ dashboard.summary.pending_exports }}</div></div>
+            <div class="col-md-3"><div class="alert alert-dark mb-0">Unread Notifications: {{ dashboard.summary.unread_notifications }}</div></div>
           </div>
 
           <div class="d-flex gap-2 flex-wrap mt-4">
@@ -629,6 +731,8 @@
             <button class="btn btn-sm" :class="studentSection === 'jobs' ? 'btn-primary' : 'btn-outline-primary'" @click="studentSection='jobs'">Jobs</button>
             <button class="btn btn-sm" :class="studentSection === 'applications' ? 'btn-primary' : 'btn-outline-primary'" @click="studentSection='applications'">Applications</button>
             <button class="btn btn-sm" :class="studentSection === 'interviews' ? 'btn-primary' : 'btn-outline-primary'" @click="studentSection='interviews'">Interviews</button>
+            <button class="btn btn-sm" :class="studentSection === 'exports' ? 'btn-primary' : 'btn-outline-primary'" @click="studentSection='exports'">CSV Exports</button>
+            <button class="btn btn-sm" :class="studentSection === 'notifications' ? 'btn-primary' : 'btn-outline-primary'" @click="studentSection='notifications'">Notifications</button>
           </div>
 
           <div v-if="studentSection === 'profile'" class="mt-3">
@@ -852,6 +956,57 @@
               </table>
             </div>
           </div>
+
+          <div v-if="studentSection === 'exports'" class="mt-3">
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <h6 class="mb-0">Asynchronous CSV Exports</h6>
+              <button class="btn btn-sm btn-primary" @click="requestStudentExport">Trigger New Export</button>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-bordered table-sm align-middle">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Scope</th>
+                    <th>Status</th>
+                    <th>Rows</th>
+                    <th>Created</th>
+                    <th>Completed</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="job in studentExports" :key="job.id">
+                    <td>{{ job.id }}</td>
+                    <td>{{ job.scope }}</td>
+                    <td>{{ job.status }}</td>
+                    <td>{{ job.row_count ?? 'N/A' }}</td>
+                    <td>{{ job.created_at }}</td>
+                    <td>{{ job.completed_at || 'N/A' }}</td>
+                    <td>
+                      <button v-if="job.status === 'completed'" class="btn btn-sm btn-success" @click="downloadStudentExport(job.id)">Download</button>
+                    </td>
+                  </tr>
+                  <tr v-if="studentExports.length === 0"><td colspan="7" class="text-center">No exports created yet</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div v-if="studentSection === 'notifications'" class="mt-3">
+            <h6>Notifications</h6>
+            <ul class="list-group">
+              <li v-for="notification in studentNotifications" :key="notification.id" class="list-group-item d-flex justify-content-between align-items-start">
+                <div>
+                  <strong>{{ notification.title }}</strong>
+                  <div class="small">{{ notification.message }}</div>
+                  <div class="small text-muted">{{ notification.channel }} | {{ notification.created_at }}</div>
+                </div>
+                <button v-if="!notification.is_read" class="btn btn-sm btn-outline-primary" @click="markStudentNotificationRead(notification.id)">Mark Read</button>
+              </li>
+              <li v-if="studentNotifications.length === 0" class="list-group-item text-center">No notifications</li>
+            </ul>
+          </div>
         </div>
       </div>
     </div>
@@ -881,9 +1036,14 @@
           companyJobs: [],
           companyApplications: [],
           companyInterviews: [],
+          companyExports: [],
+          companyReports: [],
+          companyNotifications: [],
           studentJobs: [],
           studentApplications: [],
           studentInterviews: [],
+          studentExports: [],
+          studentNotifications: [],
           companyFilters: {
             q: '',
             industry: '',
@@ -912,6 +1072,10 @@
           companyInterviewFilters: {
             status: '',
             job_id: ''
+          },
+          companyReportFilters: {
+            month_label: '',
+            format: ''
           },
           studentJobFilters: {
             q: '',
@@ -1107,7 +1271,10 @@
           await Promise.all([
             this.fetchCompanyJobs(),
             this.fetchCompanyApplications(),
-            this.fetchCompanyInterviews()
+            this.fetchCompanyInterviews(),
+            this.fetchCompanyExports(),
+            this.fetchCompanyReports(),
+            this.fetchCompanyNotifications()
           ]);
         },
         syncStudentProfileForm() {
@@ -1128,7 +1295,9 @@
           await Promise.all([
             this.fetchStudentJobs(),
             this.fetchStudentApplications(),
-            this.fetchStudentInterviews()
+            this.fetchStudentInterviews(),
+            this.fetchStudentExports(),
+            this.fetchStudentNotifications()
           ]);
         },
         async fetchCompanies() {
@@ -1495,6 +1664,110 @@
             this.error = err.message;
           }
         },
+        async requestCompanyExport() {
+          try {
+            const data = await this.requestJson('/api/company/exports', {
+              method: 'POST',
+              headers: this.authHeaders(),
+              body: JSON.stringify({ scope: 'company_history' })
+            });
+            this.message = data.message || 'Export job queued successfully';
+            this.companySection = 'exports';
+            await this.fetchCompanyExports();
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async fetchCompanyExports() {
+          try {
+            const data = await this.requestJson('/api/company/exports', {
+              headers: this.authHeaders()
+            });
+            this.companyExports = data.exports || [];
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async downloadCompanyExport(exportJobId) {
+          try {
+            const response = await fetch(`/api/company/exports/${exportJobId}/download`, {
+              headers: this.authHeaders()
+            });
+            if (!response.ok) {
+              const payload = await response.json().catch(() => ({}));
+              throw new Error(payload.error || 'Unable to download export');
+            }
+            const blob = await response.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = downloadUrl;
+            anchor.download = `company_export_${exportJobId}.csv`;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            window.URL.revokeObjectURL(downloadUrl);
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async fetchCompanyReports() {
+          try {
+            const query = this.toQuery(this.companyReportFilters);
+            const data = await this.requestJson(`/api/company/reports${query}`, {
+              headers: this.authHeaders()
+            });
+            this.companyReports = data.reports || [];
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async downloadCompanyReport(reportId) {
+          try {
+            const response = await fetch(`/api/company/reports/${reportId}/download`, {
+              headers: this.authHeaders()
+            });
+            if (!response.ok) {
+              const payload = await response.json().catch(() => ({}));
+              throw new Error(payload.error || 'Unable to download report');
+            }
+            const blob = await response.blob();
+            const contentDisposition = response.headers.get('Content-Disposition') || '';
+            const fileNameMatch = contentDisposition.match(/filename=\"?([^"]+)\"?/i);
+            const fileName = fileNameMatch && fileNameMatch[1] ? fileNameMatch[1] : `placement_report_${reportId}`;
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = downloadUrl;
+            anchor.download = fileName;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            window.URL.revokeObjectURL(downloadUrl);
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async fetchCompanyNotifications() {
+          try {
+            const data = await this.requestJson('/api/company/notifications', {
+              headers: this.authHeaders()
+            });
+            this.companyNotifications = data.notifications || [];
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async markCompanyNotificationRead(notificationId) {
+          try {
+            await this.requestJson(`/api/company/notifications/${notificationId}/read`, {
+              method: 'PATCH',
+              headers: this.authHeaders()
+            });
+            await this.fetchCompanyNotifications();
+            await this.loadDashboard();
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
         async updateStudentProfile() {
           try {
             await this.requestJson('/api/student/profile', {
@@ -1554,6 +1827,74 @@
             this.error = err.message;
           }
         },
+        async requestStudentExport() {
+          try {
+            const data = await this.requestJson('/api/student/exports', {
+              method: 'POST',
+              headers: this.authHeaders(),
+              body: JSON.stringify({ scope: 'student_history' })
+            });
+            this.message = data.message || 'Export job queued successfully';
+            this.studentSection = 'exports';
+            await this.fetchStudentExports();
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async fetchStudentExports() {
+          try {
+            const data = await this.requestJson('/api/student/exports', {
+              headers: this.authHeaders()
+            });
+            this.studentExports = data.exports || [];
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async downloadStudentExport(exportJobId) {
+          try {
+            const response = await fetch(`/api/student/exports/${exportJobId}/download`, {
+              headers: this.authHeaders()
+            });
+            if (!response.ok) {
+              const payload = await response.json().catch(() => ({}));
+              throw new Error(payload.error || 'Unable to download export');
+            }
+            const blob = await response.blob();
+            const downloadUrl = window.URL.createObjectURL(blob);
+            const anchor = document.createElement('a');
+            anchor.href = downloadUrl;
+            anchor.download = `student_export_${exportJobId}.csv`;
+            document.body.appendChild(anchor);
+            anchor.click();
+            anchor.remove();
+            window.URL.revokeObjectURL(downloadUrl);
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async fetchStudentNotifications() {
+          try {
+            const data = await this.requestJson('/api/student/notifications', {
+              headers: this.authHeaders()
+            });
+            this.studentNotifications = data.notifications || [];
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
+        async markStudentNotificationRead(notificationId) {
+          try {
+            await this.requestJson(`/api/student/notifications/${notificationId}/read`, {
+              method: 'PATCH',
+              headers: this.authHeaders()
+            });
+            await this.fetchStudentNotifications();
+            await this.loadDashboard();
+          } catch (err) {
+            this.error = err.message;
+          }
+        },
         async downloadStudentDocument(applicationId, documentType) {
           try {
             const response = await fetch(`/api/student/applications/${applicationId}/${documentType}`, {
@@ -1590,9 +1931,14 @@
           this.companyJobs = [];
           this.companyApplications = [];
           this.companyInterviews = [];
+          this.companyExports = [];
+          this.companyReports = [];
+          this.companyNotifications = [];
           this.studentJobs = [];
           this.studentApplications = [];
           this.studentInterviews = [];
+          this.studentExports = [];
+          this.studentNotifications = [];
           window.location.hash = '';
           this.message = 'Logged out successfully.';
         }

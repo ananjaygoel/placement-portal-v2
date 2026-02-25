@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from io import BytesIO
+from pathlib import Path
 
 from flask import Blueprint, g, jsonify, request, send_file
 from sqlalchemy import or_
@@ -14,17 +15,22 @@ from app.extensions import db
 from app.models import (
     Application,
     ApplicationStatus,
+    AsyncExportJob,
+    AsyncJobStatus,
     Company,
     CompanyApprovalStatus,
     DriveStatus,
+    ExportScope,
     Interview,
     InterviewStatus,
     JobPosition,
+    Notification,
     Student,
     User,
     UserRole,
 )
 from app.security import token_required
+from app.tasks import process_export_job_task
 
 student_bp = Blueprint("student", __name__)
 
@@ -206,6 +212,34 @@ def _serialize_application_for_student(application: Application):
     }
 
 
+def _serialize_export_job(export_job: AsyncExportJob):
+    return {
+        "id": export_job.id,
+        "scope": export_job.scope.value,
+        "status": export_job.status.value,
+        "celery_task_id": export_job.celery_task_id,
+        "file_name": export_job.file_name,
+        "row_count": export_job.row_count,
+        "error_message": export_job.error_message,
+        "created_at": export_job.created_at.isoformat(),
+        "started_at": export_job.started_at.isoformat() if export_job.started_at else None,
+        "completed_at": export_job.completed_at.isoformat() if export_job.completed_at else None,
+    }
+
+
+def _serialize_notification(notification: Notification):
+    return {
+        "id": notification.id,
+        "title": notification.title,
+        "message": notification.message,
+        "channel": notification.channel.value,
+        "status": notification.status.value,
+        "is_read": notification.is_read,
+        "related_job_id": notification.related_job_id,
+        "created_at": notification.created_at.isoformat(),
+    }
+
+
 def _render_offer_letter(application: Application):
     student = application.student
     company = application.job_position.company
@@ -293,6 +327,7 @@ def student_overview():
     if error_response:
         return error_response
 
+    user = g.current_user
     available_jobs_count = _job_visibility_query().filter(
         JobPosition.application_deadline >= date.today()
     ).count()
@@ -358,6 +393,19 @@ def student_overview():
                     for interview in interviews
                     if interview.status == InterviewStatus.SCHEDULED
                 ),
+                "pending_exports": AsyncExportJob.query.filter_by(
+                    requester_user_id=user.id,
+                )
+                .filter(
+                    AsyncExportJob.status.in_(
+                        [AsyncJobStatus.QUEUED, AsyncJobStatus.RUNNING]
+                    )
+                )
+                .count(),
+                "unread_notifications": Notification.query.filter_by(
+                    user_id=user.id,
+                    is_read=False,
+                ).count(),
             },
             "recent_applications": [
                 _serialize_application_for_student(application)
@@ -615,6 +663,138 @@ def list_interviews():
 
 def _application_for_student(student_id: int, application_id: int):
     return Application.query.filter_by(id=application_id, student_id=student_id).first()
+
+
+@student_bp.post("/exports")
+@token_required(UserRole.STUDENT)
+def request_student_export():
+    student, error_response = _ensure_student_access()
+    if error_response:
+        return error_response
+
+    payload = request.get_json(silent=True) or {}
+    requested_scope = _parse_enum(payload.get("scope"), ExportScope)
+    if payload.get("scope") and not requested_scope:
+        return jsonify({"error": "Invalid export scope"}), 400
+
+    scope = requested_scope or ExportScope.STUDENT_HISTORY
+    if scope != ExportScope.STUDENT_HISTORY:
+        return jsonify({"error": "Students can only export student_history scope"}), 400
+
+    export_job = AsyncExportJob(
+        requester_user_id=g.current_user.id,
+        requested_by_role=UserRole.STUDENT,
+        scope=scope,
+        status=AsyncJobStatus.QUEUED,
+        metadata_json={"student_id": student.id},
+    )
+    db.session.add(export_job)
+    db.session.commit()
+
+    task = process_export_job_task.delay(export_job.id)
+    export_job.celery_task_id = task.id
+    db.session.commit()
+
+    return (
+        jsonify(
+            {
+                "message": "Export job queued successfully",
+                "export_job": _serialize_export_job(export_job),
+            }
+        ),
+        202,
+    )
+
+
+@student_bp.get("/exports")
+@token_required(UserRole.STUDENT)
+def list_student_exports():
+    _, error_response = _ensure_student_access()
+    if error_response:
+        return error_response
+
+    exports = (
+        AsyncExportJob.query.filter_by(
+            requester_user_id=g.current_user.id,
+            requested_by_role=UserRole.STUDENT,
+        )
+        .order_by(AsyncExportJob.created_at.desc())
+        .all()
+    )
+    return jsonify({"exports": [_serialize_export_job(export_job) for export_job in exports]})
+
+
+@student_bp.get("/exports/<int:export_job_id>/download")
+@token_required(UserRole.STUDENT)
+def download_student_export(export_job_id: int):
+    _, error_response = _ensure_student_access()
+    if error_response:
+        return error_response
+
+    export_job = db.session.get(AsyncExportJob, export_job_id)
+    if not export_job or export_job.requester_user_id != g.current_user.id:
+        return jsonify({"error": "Export job not found"}), 404
+    if export_job.status != AsyncJobStatus.COMPLETED:
+        return jsonify({"error": "Export file is not ready yet"}), 409
+    if not export_job.file_path:
+        return jsonify({"error": "Export file path is missing"}), 409
+
+    file_path = Path(export_job.file_path)
+    if not file_path.exists():
+        return jsonify({"error": "Export file not found on server"}), 404
+
+    return send_file(
+        str(file_path),
+        as_attachment=True,
+        download_name=export_job.file_name or file_path.name,
+        mimetype="text/csv",
+    )
+
+
+@student_bp.get("/notifications")
+@token_required(UserRole.STUDENT)
+def list_student_notifications():
+    _, error_response = _ensure_student_access()
+    if error_response:
+        return error_response
+
+    notifications = (
+        Notification.query.filter_by(user_id=g.current_user.id)
+        .order_by(Notification.created_at.desc())
+        .limit(100)
+        .all()
+    )
+    return jsonify(
+        {
+            "notifications": [
+                _serialize_notification(notification) for notification in notifications
+            ]
+        }
+    )
+
+
+@student_bp.patch("/notifications/<int:notification_id>/read")
+@token_required(UserRole.STUDENT)
+def mark_student_notification_read(notification_id: int):
+    _, error_response = _ensure_student_access()
+    if error_response:
+        return error_response
+
+    notification = Notification.query.filter_by(
+        id=notification_id,
+        user_id=g.current_user.id,
+    ).first()
+    if not notification:
+        return jsonify({"error": "Notification not found"}), 404
+
+    notification.is_read = True
+    db.session.commit()
+    return jsonify(
+        {
+            "message": "Notification marked as read",
+            "notification": _serialize_notification(notification),
+        }
+    )
 
 
 @student_bp.get("/applications/<int:application_id>/offer-letter")

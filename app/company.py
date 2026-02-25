@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 
 from flask import Blueprint, g, jsonify, request
 from sqlalchemy import or_
@@ -16,17 +17,24 @@ from app.extensions import db
 from app.models import (
     Application,
     ApplicationStatus,
+    AsyncExportJob,
+    AsyncJobStatus,
     Company,
     CompanyApprovalStatus,
     DriveStatus,
+    ExportScope,
     Interview,
     InterviewStatus,
     JobPosition,
+    Notification,
+    PlacementReport,
+    ReportFormat,
     Student,
     User,
     UserRole,
 )
 from app.security import token_required
+from app.tasks import process_export_job_task
 
 company_bp = Blueprint("company", __name__)
 
@@ -192,6 +200,45 @@ def _serialize_job(job: JobPosition):
     }
 
 
+def _serialize_export_job(export_job: AsyncExportJob):
+    return {
+        "id": export_job.id,
+        "scope": export_job.scope.value,
+        "status": export_job.status.value,
+        "celery_task_id": export_job.celery_task_id,
+        "file_name": export_job.file_name,
+        "row_count": export_job.row_count,
+        "error_message": export_job.error_message,
+        "created_at": export_job.created_at.isoformat(),
+        "started_at": export_job.started_at.isoformat() if export_job.started_at else None,
+        "completed_at": export_job.completed_at.isoformat() if export_job.completed_at else None,
+    }
+
+
+def _serialize_notification(notification: Notification):
+    return {
+        "id": notification.id,
+        "title": notification.title,
+        "message": notification.message,
+        "channel": notification.channel.value,
+        "status": notification.status.value,
+        "is_read": notification.is_read,
+        "related_job_id": notification.related_job_id,
+        "created_at": notification.created_at.isoformat(),
+    }
+
+
+def _serialize_report(report: PlacementReport):
+    return {
+        "id": report.id,
+        "month_label": report.month_label,
+        "format": report.report_format.value,
+        "file_name": report.file_name,
+        "generated_at": report.generated_at.isoformat(),
+        "summary": report.summary_json,
+    }
+
+
 def _job_for_company(company_id: int, job_id: int):
     return JobPosition.query.filter_by(id=job_id, company_id=company_id).first()
 
@@ -273,6 +320,23 @@ def company_overview():
                 ).count(),
                 "rejected_candidates": application_query.filter(
                     Application.status == ApplicationStatus.REJECTED
+                ).count(),
+                "pending_exports": AsyncExportJob.query.filter_by(
+                    requester_user_id=g.current_user.id,
+                    requested_by_role=UserRole.COMPANY,
+                )
+                .filter(
+                    AsyncExportJob.status.in_(
+                        [AsyncJobStatus.QUEUED, AsyncJobStatus.RUNNING]
+                    )
+                )
+                .count(),
+                "unread_notifications": Notification.query.filter_by(
+                    user_id=g.current_user.id,
+                    is_read=False,
+                ).count(),
+                "reports_available": PlacementReport.query.filter_by(
+                    company_id=company.id
                 ).count(),
             },
             "jobs": [_serialize_job(job) for job in jobs],
@@ -707,5 +771,187 @@ def update_interview_status(interview_id: int):
         {
             "message": "Interview status updated",
             "interview": _serialize_interview(interview),
+        }
+    )
+
+
+@company_bp.post("/exports")
+@token_required(UserRole.COMPANY)
+def request_company_export():
+    company, error_response = _ensure_company_access()
+    if error_response:
+        return error_response
+
+    payload = request.get_json(silent=True) or {}
+    requested_scope = _parse_enum(payload.get("scope"), ExportScope)
+    if payload.get("scope") and not requested_scope:
+        return jsonify({"error": "Invalid export scope"}), 400
+
+    scope = requested_scope or ExportScope.COMPANY_HISTORY
+    if scope != ExportScope.COMPANY_HISTORY:
+        return jsonify({"error": "Companies can only export company_history scope"}), 400
+
+    export_job = AsyncExportJob(
+        requester_user_id=g.current_user.id,
+        requested_by_role=UserRole.COMPANY,
+        scope=scope,
+        status=AsyncJobStatus.QUEUED,
+        metadata_json={"company_id": company.id},
+    )
+    db.session.add(export_job)
+    db.session.commit()
+
+    task = process_export_job_task.delay(export_job.id)
+    export_job.celery_task_id = task.id
+    db.session.commit()
+
+    return (
+        jsonify(
+            {
+                "message": "Export job queued successfully",
+                "export_job": _serialize_export_job(export_job),
+            }
+        ),
+        202,
+    )
+
+
+@company_bp.get("/exports")
+@token_required(UserRole.COMPANY)
+def list_company_exports():
+    _, error_response = _ensure_company_access()
+    if error_response:
+        return error_response
+
+    exports = (
+        AsyncExportJob.query.filter_by(
+            requester_user_id=g.current_user.id,
+            requested_by_role=UserRole.COMPANY,
+        )
+        .order_by(AsyncExportJob.created_at.desc())
+        .all()
+    )
+    return jsonify({"exports": [_serialize_export_job(export_job) for export_job in exports]})
+
+
+@company_bp.get("/exports/<int:export_job_id>/download")
+@token_required(UserRole.COMPANY)
+def download_company_export(export_job_id: int):
+    _, error_response = _ensure_company_access()
+    if error_response:
+        return error_response
+
+    export_job = db.session.get(AsyncExportJob, export_job_id)
+    if not export_job or export_job.requester_user_id != g.current_user.id:
+        return jsonify({"error": "Export job not found"}), 404
+    if export_job.status != AsyncJobStatus.COMPLETED:
+        return jsonify({"error": "Export file is not ready yet"}), 409
+    if not export_job.file_path:
+        return jsonify({"error": "Export file path is missing"}), 409
+
+    file_path = Path(export_job.file_path)
+    if not file_path.exists():
+        return jsonify({"error": "Export file not found on server"}), 404
+
+    from flask import send_file
+
+    return send_file(
+        str(file_path),
+        as_attachment=True,
+        download_name=export_job.file_name or file_path.name,
+        mimetype="text/csv",
+    )
+
+
+@company_bp.get("/reports")
+@token_required(UserRole.COMPANY)
+def list_company_reports():
+    company, error_response = _ensure_company_access()
+    if error_response:
+        return error_response
+
+    query = PlacementReport.query.filter_by(company_id=company.id)
+
+    month_label = (request.args.get("month_label") or "").strip()
+    if month_label:
+        query = query.filter(PlacementReport.month_label == month_label)
+
+    report_format = _parse_enum(request.args.get("format"), ReportFormat)
+    if request.args.get("format") and not report_format:
+        return jsonify({"error": "Invalid report format"}), 400
+    if report_format:
+        query = query.filter(PlacementReport.report_format == report_format)
+
+    reports = query.order_by(PlacementReport.generated_at.desc()).all()
+    return jsonify({"reports": [_serialize_report(report) for report in reports]})
+
+
+@company_bp.get("/reports/<int:report_id>/download")
+@token_required(UserRole.COMPANY)
+def download_company_report(report_id: int):
+    company, error_response = _ensure_company_access()
+    if error_response:
+        return error_response
+
+    report = PlacementReport.query.filter_by(id=report_id, company_id=company.id).first()
+    if not report:
+        return jsonify({"error": "Report not found"}), 404
+
+    file_path = Path(report.file_path)
+    if not file_path.exists():
+        return jsonify({"error": "Report file not found on server"}), 404
+
+    from flask import send_file
+
+    return send_file(
+        str(file_path),
+        as_attachment=True,
+        download_name=report.file_name or file_path.name,
+        mimetype="text/html" if report.report_format == ReportFormat.HTML else "application/pdf",
+    )
+
+
+@company_bp.get("/notifications")
+@token_required(UserRole.COMPANY)
+def list_company_notifications():
+    _, error_response = _ensure_company_access()
+    if error_response:
+        return error_response
+
+    notifications = (
+        Notification.query.filter_by(user_id=g.current_user.id)
+        .order_by(Notification.created_at.desc())
+        .limit(100)
+        .all()
+    )
+    return jsonify(
+        {
+            "notifications": [
+                _serialize_notification(notification) for notification in notifications
+            ]
+        }
+    )
+
+
+@company_bp.patch("/notifications/<int:notification_id>/read")
+@token_required(UserRole.COMPANY)
+def mark_company_notification_read(notification_id: int):
+    _, error_response = _ensure_company_access()
+    if error_response:
+        return error_response
+
+    notification = Notification.query.filter_by(
+        id=notification_id,
+        user_id=g.current_user.id,
+    ).first()
+    if not notification:
+        return jsonify({"error": "Notification not found"}), 404
+
+    notification.is_read = True
+    db.session.commit()
+    return jsonify(
+        {
+            "message": "Notification marked as read",
+            "notification": _serialize_notification(notification),
         }
     )

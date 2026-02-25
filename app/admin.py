@@ -13,10 +13,15 @@ from app.extensions import db
 from app.models import (
     Application,
     ApplicationStatus,
+    AsyncExportJob,
+    AsyncJobStatus,
     Company,
     CompanyApprovalStatus,
     DriveStatus,
+    ExportScope,
     JobPosition,
+    PlacementReport,
+    ReportFormat,
     Student,
     User,
     UserRole,
@@ -151,6 +156,36 @@ def _serialize_application(application: Application):
     }
 
 
+def _serialize_export_job(export_job: AsyncExportJob):
+    return {
+        "id": export_job.id,
+        "requester_user_id": export_job.requester_user_id,
+        "requester_email": export_job.requester_user.email if export_job.requester_user else None,
+        "requested_by_role": export_job.requested_by_role.value,
+        "scope": export_job.scope.value,
+        "status": export_job.status.value,
+        "row_count": export_job.row_count,
+        "file_name": export_job.file_name,
+        "error_message": export_job.error_message,
+        "created_at": export_job.created_at.isoformat(),
+        "completed_at": export_job.completed_at.isoformat() if export_job.completed_at else None,
+    }
+
+
+def _serialize_report(report: PlacementReport):
+    company = report.company
+    return {
+        "id": report.id,
+        "company_id": report.company_id,
+        "company_name": company.company_name if company else None,
+        "month_label": report.month_label,
+        "format": report.report_format.value,
+        "file_name": report.file_name,
+        "generated_at": report.generated_at.isoformat(),
+        "summary": report.summary_json,
+    }
+
+
 @admin_bp.get("/overview")
 @token_required(UserRole.ADMIN)
 def overview():
@@ -161,6 +196,8 @@ def overview():
                 "companies": Company.query.count(),
                 "job_postings": JobPosition.query.count(),
                 "applications": Application.query.count(),
+                "async_exports": AsyncExportJob.query.count(),
+                "monthly_reports": PlacementReport.query.count(),
             },
             "pending_approvals": {
                 "companies": Company.query.filter_by(
@@ -184,6 +221,67 @@ def overview():
             },
         }
     )
+
+
+@admin_bp.get("/exports")
+@token_required(UserRole.ADMIN)
+def list_async_exports():
+    query = AsyncExportJob.query.join(User, AsyncExportJob.requester_user_id == User.id)
+
+    status_filter = _parse_enum(request.args.get("status"), AsyncJobStatus)
+    if request.args.get("status") and not status_filter:
+        return jsonify({"error": "Invalid export status"}), 400
+    if status_filter:
+        query = query.filter(AsyncExportJob.status == status_filter)
+
+    scope_filter = _parse_enum(request.args.get("scope"), ExportScope)
+    if request.args.get("scope") and not scope_filter:
+        return jsonify({"error": "Invalid export scope"}), 400
+    if scope_filter:
+        query = query.filter(AsyncExportJob.scope == scope_filter)
+
+    role_filter = _parse_enum(request.args.get("role"), UserRole)
+    if request.args.get("role") and not role_filter:
+        return jsonify({"error": "Invalid requester role"}), 400
+    if role_filter:
+        query = query.filter(AsyncExportJob.requested_by_role == role_filter)
+
+    search_text = (request.args.get("q") or "").strip()
+    if search_text:
+        like_value = f"%{search_text}%"
+        query = query.filter(User.email.ilike(like_value))
+
+    exports = query.order_by(AsyncExportJob.created_at.desc()).all()
+    return jsonify({"exports": [_serialize_export_job(job) for job in exports]})
+
+
+@admin_bp.get("/reports")
+@token_required(UserRole.ADMIN)
+def list_reports():
+    query = PlacementReport.query.join(Company, PlacementReport.company_id == Company.id)
+
+    month_label = (request.args.get("month_label") or "").strip()
+    if month_label:
+        query = query.filter(PlacementReport.month_label == month_label)
+
+    report_format = _parse_enum(request.args.get("format"), ReportFormat)
+    if request.args.get("format") and not report_format:
+        return jsonify({"error": "Invalid report format"}), 400
+    if report_format:
+        query = query.filter(PlacementReport.report_format == report_format)
+
+    company_id = (request.args.get("company_id") or "").strip()
+    if company_id:
+        if not company_id.isdigit():
+            return jsonify({"error": "company_id must be an integer"}), 400
+        query = query.filter(PlacementReport.company_id == int(company_id))
+
+    search_text = (request.args.get("q") or "").strip()
+    if search_text:
+        query = query.filter(Company.company_name.ilike(f"%{search_text}%"))
+
+    reports = query.order_by(PlacementReport.generated_at.desc()).all()
+    return jsonify({"reports": [_serialize_report(report) for report in reports]})
 
 
 @admin_bp.get("/companies")

@@ -45,6 +45,36 @@ class InterviewStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class AsyncJobStatus(str, Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class ExportScope(str, Enum):
+    STUDENT_HISTORY = "student_history"
+    COMPANY_HISTORY = "company_history"
+
+
+class NotificationChannel(str, Enum):
+    EMAIL = "email"
+    GCHAT = "gchat"
+    SMS = "sms"
+    IN_APP = "in_app"
+
+
+class NotificationStatus(str, Enum):
+    PENDING = "pending"
+    SENT = "sent"
+    FAILED = "failed"
+
+
+class ReportFormat(str, Enum):
+    HTML = "html"
+    PDF = "pdf"
+
+
 class User(db.Model):
     __tablename__ = "users"
 
@@ -72,6 +102,16 @@ class User(db.Model):
         "Student",
         back_populates="user",
         uselist=False,
+        cascade="all, delete-orphan",
+    )
+    export_jobs = db.relationship(
+        "AsyncExportJob",
+        back_populates="requester_user",
+        cascade="all, delete-orphan",
+    )
+    notifications = db.relationship(
+        "Notification",
+        back_populates="user",
         cascade="all, delete-orphan",
     )
 
@@ -113,6 +153,11 @@ class Company(db.Model):
         cascade="all, delete-orphan",
     )
     placements = db.relationship("Placement", back_populates="company")
+    placement_reports = db.relationship(
+        "PlacementReport",
+        back_populates="company",
+        cascade="all, delete-orphan",
+    )
 
 
 class Student(db.Model):
@@ -283,6 +328,7 @@ class Interview(db.Model):
     meeting_link = db.Column(db.String(255))
     location = db.Column(db.String(255))
     notes = db.Column(db.Text)
+    last_reminder_sent_at = db.Column(db.DateTime)
     status = db.Column(
         SAEnum(InterviewStatus, native_enum=False),
         default=InterviewStatus.SCHEDULED,
@@ -324,3 +370,109 @@ class Placement(db.Model):
     company = db.relationship("Company", back_populates="placements")
     job_position = db.relationship("JobPosition", back_populates="placements")
     application = db.relationship("Application", back_populates="placement")
+
+
+class AsyncExportJob(db.Model):
+    __tablename__ = "async_export_jobs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    requester_user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+    )
+    requested_by_role = db.Column(
+        SAEnum(UserRole, native_enum=False),
+        nullable=False,
+        index=True,
+    )
+    scope = db.Column(
+        SAEnum(ExportScope, native_enum=False),
+        nullable=False,
+        index=True,
+    )
+    status = db.Column(
+        SAEnum(AsyncJobStatus, native_enum=False),
+        default=AsyncJobStatus.QUEUED,
+        nullable=False,
+        index=True,
+    )
+    celery_task_id = db.Column(db.String(120), index=True)
+    file_name = db.Column(db.String(255))
+    file_path = db.Column(db.String(500))
+    row_count = db.Column(db.Integer)
+    error_message = db.Column(db.Text)
+    metadata_json = db.Column(db.JSON)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    started_at = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime)
+
+    requester_user = db.relationship("User", back_populates="export_jobs")
+    notifications = db.relationship("Notification", back_populates="export_job")
+
+
+class PlacementReport(db.Model):
+    __tablename__ = "placement_reports"
+    __table_args__ = (
+        UniqueConstraint("company_id", "month_label", "report_format", name="uq_company_month_format_report"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    company_id = db.Column(
+        db.Integer,
+        db.ForeignKey("companies.id"),
+        nullable=False,
+        index=True,
+    )
+    month_label = db.Column(db.String(20), nullable=False, index=True)
+    report_format = db.Column(
+        SAEnum(ReportFormat, native_enum=False),
+        nullable=False,
+        index=True,
+    )
+    file_name = db.Column(db.String(255), nullable=False)
+    file_path = db.Column(db.String(500), nullable=False)
+    summary_json = db.Column(db.JSON)
+    generated_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+    celery_task_id = db.Column(db.String(120), index=True)
+
+    company = db.relationship("Company", back_populates="placement_reports")
+
+
+class Notification(db.Model):
+    __tablename__ = "notifications"
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(
+        db.Integer,
+        db.ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+    )
+    channel = db.Column(
+        SAEnum(NotificationChannel, native_enum=False),
+        default=NotificationChannel.IN_APP,
+        nullable=False,
+        index=True,
+    )
+    status = db.Column(
+        SAEnum(NotificationStatus, native_enum=False),
+        default=NotificationStatus.SENT,
+        nullable=False,
+        index=True,
+    )
+    title = db.Column(db.String(255), nullable=False)
+    message = db.Column(db.Text, nullable=False)
+    is_read = db.Column(db.Boolean, default=False, nullable=False, index=True)
+    related_job_id = db.Column(
+        db.Integer,
+        db.ForeignKey("async_export_jobs.id"),
+        index=True,
+    )
+    delivery_response = db.Column(db.Text)
+    metadata_json = db.Column(db.JSON)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+    user = db.relationship("User", back_populates="notifications")
+    export_job = db.relationship("AsyncExportJob", back_populates="notifications")
