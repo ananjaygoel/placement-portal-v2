@@ -39,8 +39,8 @@ class Config:
     CELERY_TASK_TIME_LIMIT = int(os.getenv("CELERY_TASK_TIME_LIMIT", "900"))
     CELERY_TASK_SOFT_TIME_LIMIT = int(os.getenv("CELERY_TASK_SOFT_TIME_LIMIT", "840"))
     CELERY_BEAT_SCHEDULE = {
-        "daily-interview-reminders": {
-            "task": "app.tasks.send_interview_reminders_task",
+        "daily-application-deadline-reminders": {
+            "task": "app.tasks.send_application_deadline_reminders_task",
             "schedule": crontab(hour=9, minute=0),
         },
         "monthly-placement-reports": {
@@ -52,6 +52,9 @@ class Config:
     JOB_EXPORT_DIR = str(BASE_DIR / "instance" / "exports")
     JOB_REPORT_DIR = str(BASE_DIR / "instance" / "reports")
     DEFAULT_NOTIFICATION_CHANNEL = os.getenv("DEFAULT_NOTIFICATION_CHANNEL", "in_app")
+    DEADLINE_REMINDER_LOOKAHEAD_DAYS = int(
+        os.getenv("DEADLINE_REMINDER_LOOKAHEAD_DAYS", "3")
+    )
     REMINDER_LOOKAHEAD_HOURS = int(os.getenv("REMINDER_LOOKAHEAD_HOURS", "24"))
     MONTHLY_REPORT_FORMAT = os.getenv("MONTHLY_REPORT_FORMAT", "html")
     EMAIL_SENDER = os.getenv("EMAIL_SENDER", "placements@institute.edu")

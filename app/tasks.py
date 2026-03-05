@@ -105,6 +105,7 @@ def _deliver_notification(
     channel: NotificationChannel,
     title: str,
     message: str,
+    html_body: str | None = None,
 ) -> tuple[NotificationStatus, str]:
     if channel == NotificationChannel.IN_APP:
         return NotificationStatus.SENT, "Delivered to in-app inbox"
@@ -120,6 +121,8 @@ def _deliver_notification(
         email_message["From"] = current_app.config.get("EMAIL_SENDER")
         email_message["To"] = recipient
         email_message.set_content(message)
+        if html_body:
+            email_message.add_alternative(html_body, subtype="html")
 
         try:
             smtp_port = int(current_app.config.get("SMTP_PORT", 587))
@@ -194,8 +197,15 @@ def _create_notification(
     channel: NotificationChannel,
     related_job_id: int | None = None,
     metadata: dict | None = None,
+    html_body: str | None = None,
 ) -> Notification:
-    delivery_status, delivery_response = _deliver_notification(user, channel, title, message)
+    delivery_status, delivery_response = _deliver_notification(
+        user,
+        channel,
+        title,
+        message,
+        html_body=html_body,
+    )
     effective_channel = channel
 
     if delivery_status == NotificationStatus.FAILED and channel != NotificationChannel.IN_APP:
@@ -349,6 +359,155 @@ def _company_report_summary(company: Company, window: MonthWindow) -> dict:
     }
 
 
+def _split_branches(branch_value: str) -> list[str]:
+    normalized = branch_value.replace("|", ",").replace("/", ",")
+    return [branch.strip().lower() for branch in normalized.split(",") if branch.strip()]
+
+
+def _student_meets_job_eligibility(student: Student, job: JobPosition) -> bool:
+    if job.eligibility_branch:
+        eligible_branches = _split_branches(job.eligibility_branch)
+        student_branch = (student.branch or "").strip().lower()
+        if not student_branch or (eligible_branches and student_branch not in eligible_branches):
+            return False
+
+    if job.minimum_cgpa is not None:
+        if student.cgpa is None or student.cgpa < job.minimum_cgpa:
+            return False
+
+    if job.minimum_graduation_year is not None:
+        if student.graduation_year is None or student.graduation_year < job.minimum_graduation_year:
+            return False
+
+    return True
+
+
+def _render_institute_report_html(summary: dict) -> str:
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Institute Placement Report {summary["month_label"]}</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; margin: 24px; }}
+    h1, h2 {{ margin-bottom: 8px; }}
+    table {{ border-collapse: collapse; width: 100%; margin-top: 12px; }}
+    th, td {{ border: 1px solid #d1d5db; padding: 8px; text-align: left; }}
+    th {{ background: #f8fafc; }}
+  </style>
+</head>
+<body>
+  <h1>Institute Monthly Placement Activity Report</h1>
+  <p><strong>Month:</strong> {summary["month_label"]}</p>
+  <table>
+    <thead>
+      <tr><th>Metric</th><th>Value</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Drives conducted</td><td>{summary["drives_conducted"]}</td></tr>
+      <tr><td>Total applications received</td><td>{summary["applications_received"]}</td></tr>
+      <tr><td>Students applied</td><td>{summary["students_applied"]}</td></tr>
+      <tr><td>Students selected/offered</td><td>{summary["students_selected"]}</td></tr>
+      <tr><td>Students placed</td><td>{summary["students_placed"]}</td></tr>
+      <tr><td>Generated at</td><td>{summary["generated_at"]}</td></tr>
+    </tbody>
+  </table>
+</body>
+</html>"""
+
+
+def _write_institute_report_pdf(file_path: Path, summary: dict) -> None:
+    pdf = canvas.Canvas(str(file_path), pagesize=A4)
+    _, height = A4
+    y = height - 50
+    lines = [
+        "Institute Monthly Placement Activity Report",
+        f"Month: {summary['month_label']}",
+        f"Drives conducted: {summary['drives_conducted']}",
+        f"Total applications received: {summary['applications_received']}",
+        f"Students applied: {summary['students_applied']}",
+        f"Students selected/offered: {summary['students_selected']}",
+        f"Students placed: {summary['students_placed']}",
+        f"Generated at: {summary['generated_at']}",
+    ]
+    for line in lines:
+        if y < 40:
+            pdf.showPage()
+            y = height - 50
+        pdf.drawString(40, y, line)
+        y -= 16
+    pdf.save()
+
+
+def _institute_report_summary(window: MonthWindow) -> dict:
+    drives_conducted = JobPosition.query.filter(
+        JobPosition.status.in_([DriveStatus.APPROVED, DriveStatus.CLOSED]),
+        JobPosition.application_deadline >= window.start_date,
+        JobPosition.application_deadline < window.end_date,
+    ).count()
+
+    applications_in_window = Application.query.filter(
+        Application.applied_at >= window.start_dt,
+        Application.applied_at < window.end_dt,
+    )
+
+    students_applied = (
+        db.session.query(Application.student_id)
+        .filter(
+            Application.applied_at >= window.start_dt,
+            Application.applied_at < window.end_dt,
+        )
+        .distinct()
+        .count()
+    )
+
+    selected_student_ids = {
+        student_id
+        for (student_id,) in db.session.query(Application.student_id)
+        .filter(
+            Application.status.in_(
+                [ApplicationStatus.OFFER, ApplicationStatus.SELECTED, ApplicationStatus.PLACED]
+            ),
+            Application.updated_at >= window.start_dt,
+            Application.updated_at < window.end_dt,
+        )
+        .distinct()
+        .all()
+    }
+    selected_student_ids.update(
+        {
+            student_id
+            for (student_id,) in db.session.query(Placement.student_id)
+            .filter(
+                Placement.created_at >= window.start_dt,
+                Placement.created_at < window.end_dt,
+            )
+            .distinct()
+            .all()
+        }
+    )
+
+    students_placed = (
+        db.session.query(Placement.student_id)
+        .filter(
+            Placement.created_at >= window.start_dt,
+            Placement.created_at < window.end_dt,
+        )
+        .distinct()
+        .count()
+    )
+
+    return {
+        "month_label": window.label,
+        "drives_conducted": drives_conducted,
+        "applications_received": applications_in_window.count(),
+        "students_applied": students_applied,
+        "students_selected": len(selected_student_ids),
+        "students_placed": students_placed,
+        "generated_at": _utcnow().isoformat(),
+    }
+
+
 def _export_student_rows(user: User) -> tuple[list[str], list[dict]]:
     student = user.student_profile
     if not student:
@@ -477,78 +636,108 @@ def _export_company_rows(user: User) -> tuple[list[str], list[dict]]:
     return fieldnames, rows
 
 
-@celery.task(name="app.tasks.send_interview_reminders_task")
-def send_interview_reminders_task():
-    now = _utcnow()
-    lookahead_hours = int(current_app.config.get("REMINDER_LOOKAHEAD_HOURS", 24))
-    upper_bound = now + timedelta(hours=lookahead_hours)
+@celery.task(name="app.tasks.send_application_deadline_reminders_task")
+def send_application_deadline_reminders_task():
+    today = date.today()
+    lookahead_days = int(current_app.config.get("DEADLINE_REMINDER_LOOKAHEAD_DAYS", 3))
+    upper_bound = today + timedelta(days=lookahead_days)
+    start_of_today = datetime.combine(today, datetime.min.time())
+    start_of_tomorrow = start_of_today + timedelta(days=1)
     configured_channel = _normalize_notification_channel(
         current_app.config.get("DEFAULT_NOTIFICATION_CHANNEL")
     )
 
-    interviews = (
-        Interview.query.join(Application, Interview.application_id == Application.id)
-        .join(Student, Application.student_id == Student.id)
-        .join(User, Student.user_id == User.id)
-        .join(JobPosition, Application.job_id == JobPosition.id)
-        .join(Company, JobPosition.company_id == Company.id)
+    students = (
+        Student.query.join(User, Student.user_id == User.id)
         .filter(
-            Interview.status == InterviewStatus.SCHEDULED,
-            Interview.scheduled_at >= now,
-            Interview.scheduled_at <= upper_bound,
             Student.is_active.is_(True),
             User.is_active.is_(True),
             User.is_blacklisted.is_(False),
-            Company.is_active.is_(True),
-            Company.approval_status == CompanyApprovalStatus.APPROVED,
-            JobPosition.status == DriveStatus.APPROVED,
         )
-        .order_by(Interview.scheduled_at.asc())
+        .order_by(Student.full_name.asc())
         .all()
     )
 
     reminders_sent = 0
     skipped = 0
-    for interview in interviews:
-        if interview.last_reminder_sent_at and interview.last_reminder_sent_at.date() == now.date():
-            skipped += 1
-            continue
-
-        application = interview.application
-        student = application.student if application else None
-        student_user = student.user if student else None
-        company = interview.company
-        job_title = application.job_position.title if application and application.job_position else "Job"
+    for student in students:
+        student_user = student.user
         if not student_user:
             skipped += 1
             continue
 
+        already_notified_today = Notification.query.filter(
+            Notification.user_id == student_user.id,
+            Notification.title == "Upcoming Application Deadline Reminder",
+            Notification.created_at >= start_of_today,
+            Notification.created_at < start_of_tomorrow,
+        ).first()
+        if already_notified_today:
+            skipped += 1
+            continue
+
+        candidate_jobs = (
+            JobPosition.query.join(Company, JobPosition.company_id == Company.id)
+            .join(User, Company.user_id == User.id)
+            .filter(
+                JobPosition.status == DriveStatus.APPROVED,
+                JobPosition.application_deadline >= today,
+                JobPosition.application_deadline <= upper_bound,
+                Company.approval_status == CompanyApprovalStatus.APPROVED,
+                Company.is_active.is_(True),
+                User.is_active.is_(True),
+                User.is_blacklisted.is_(False),
+                ~JobPosition.applications.any(Application.student_id == student.id),
+            )
+            .order_by(JobPosition.application_deadline.asc())
+            .all()
+        )
+        eligible_jobs = [
+            job for job in candidate_jobs if _student_meets_job_eligibility(student, job)
+        ]
+        if not eligible_jobs:
+            skipped += 1
+            continue
+
+        highlighted_jobs = eligible_jobs[:5]
+        listing = "\n".join(
+            [
+                f"- {job.title} at {job.company.company_name if job.company else 'Company'} "
+                f"(deadline: {job.application_deadline.isoformat()})"
+                for job in highlighted_jobs
+            ]
+        )
         message = (
-            f"Reminder: Your interview for '{job_title}' with "
-            f"'{company.company_name if company else 'Company'}' is scheduled at "
-            f"{interview.scheduled_at.isoformat()}."
+            "Upcoming placement drive deadlines are approaching:\n"
+            f"{listing}\n"
+            "Please apply before the listed deadlines."
         )
         _create_notification(
             user=student_user,
             channel=configured_channel,
-            title="Interview Reminder",
+            title="Upcoming Application Deadline Reminder",
             message=message,
             metadata={
-                "type": "interview_reminder",
-                "interview_id": interview.id,
-                "application_id": interview.application_id,
+                "type": "application_deadline_reminder",
+                "student_id": student.id,
+                "job_ids": [job.id for job in highlighted_jobs],
+                "lookahead_days": lookahead_days,
             },
         )
-        interview.last_reminder_sent_at = now
         reminders_sent += 1
 
     db.session.commit()
     return {
-        "evaluated": len(interviews),
+        "evaluated_students": len(students),
         "sent": reminders_sent,
         "skipped": skipped,
-        "window_hours": lookahead_hours,
+        "lookahead_days": lookahead_days,
     }
+
+
+@celery.task(name="app.tasks.send_interview_reminders_task")
+def send_interview_reminders_task():
+    return send_application_deadline_reminders_task()
 
 
 @celery.task(name="app.tasks.generate_monthly_reports_task", bind=True)
@@ -639,11 +828,67 @@ def generate_monthly_reports_task(
             db.session.rollback()
             failed.append({"company_id": company.id, "error": str(exc)})
 
+    institute_report_file_path = None
+    institute_report_file_name = None
+    admin_report_error = None
+    admins_notified = 0
+    try:
+        institute_summary = _institute_report_summary(window)
+        institute_html = _render_institute_report_html(institute_summary)
+        institute_dir = report_root / "institute"
+        institute_dir.mkdir(parents=True, exist_ok=True)
+        extension = "html" if report_type == ReportFormat.HTML else "pdf"
+        institute_report_file_name = f"institute_report_{window.label}.{extension}"
+        institute_report_file_path = institute_dir / institute_report_file_name
+
+        if report_type == ReportFormat.HTML:
+            institute_report_file_path.write_text(institute_html, encoding="utf-8")
+        else:
+            _write_institute_report_pdf(institute_report_file_path, institute_summary)
+
+        admin_users = User.query.filter_by(
+            role=UserRole.ADMIN,
+            is_active=True,
+            is_blacklisted=False,
+        ).all()
+        for admin_user in admin_users:
+            _create_notification(
+                user=admin_user,
+                channel=NotificationChannel.EMAIL,
+                title=f"Institute Monthly Placement Report ({window.label})",
+                message=(
+                    "Monthly placement activity report is ready.\n"
+                    f"Drives conducted: {institute_summary['drives_conducted']}\n"
+                    f"Students applied: {institute_summary['students_applied']}\n"
+                    f"Students selected/offered: {institute_summary['students_selected']}\n"
+                    f"Students placed: {institute_summary['students_placed']}\n"
+                    f"Report file: {institute_report_file_path}"
+                ),
+                html_body=institute_html,
+                metadata={
+                    "type": "monthly_institute_report",
+                    "month_label": window.label,
+                    "format": report_type.value,
+                    "file_name": institute_report_file_name,
+                },
+            )
+            admins_notified += 1
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        admin_report_error = str(exc)
+
     return {
         "month_label": window.label,
         "format": report_type.value,
         "generated": generated,
         "failed": failed,
+        "institute_report_file_name": institute_report_file_name,
+        "institute_report_file_path": (
+            str(institute_report_file_path) if institute_report_file_path else None
+        ),
+        "admins_notified": admins_notified,
+        "admin_report_error": admin_report_error,
     }
 
 

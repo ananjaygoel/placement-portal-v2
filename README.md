@@ -87,12 +87,16 @@ This repository currently includes:
 - `CACHE_JOB_LIST_TTL_SECONDS` (default: `90`)
 - `CACHE_COMPANY_SEARCH_TTL_SECONDS` (default: `180`)
 - `CACHE_STUDENT_SEARCH_TTL_SECONDS` (default: `180`)
+- `DEADLINE_REMINDER_LOOKAHEAD_DAYS` (default: `3`)
 - `DEFAULT_NOTIFICATION_CHANNEL` (`in_app` / `email` / `gchat` / `sms`)
 - `MONTHLY_REPORT_FORMAT` (`html` or `pdf`)
 
 ## Scheduled + Async Jobs
-- Daily interview reminder job (`send_interview_reminders_task`) via Celery Beat.
-- Monthly company placement report job (`generate_monthly_reports_task`) via Celery Beat.
+- Daily application deadline reminder job (`send_application_deadline_reminders_task`) via Celery Beat.
+- Monthly institute activity report job (`generate_monthly_reports_task`) via Celery Beat.
+  - Generates institute-level report for Admin (drives conducted, students applied/selected/placed).
+  - Sends report to Admin via email (falls back to in-app notification if email delivery fails).
+  - Also continues generating company-level monthly report files for company dashboards.
 - User-triggered async CSV exports (`process_export_job_task`) for:
   - Student application and placement history.
   - Company application and placement pipeline history.
