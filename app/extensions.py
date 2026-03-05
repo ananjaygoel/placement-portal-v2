@@ -1,8 +1,12 @@
-from flask_sqlalchemy import SQLAlchemy
+from __future__ import annotations
+
 from celery import Celery
+from flask_sqlalchemy import SQLAlchemy
+from redis import Redis
 
 db = SQLAlchemy()
 celery = Celery(__name__)
+redis_client: Redis | None = None
 
 
 def init_celery(app):
@@ -26,3 +30,27 @@ def init_celery(app):
 
     celery.Task = FlaskContextTask
     return celery
+
+
+def init_redis(app):
+    global redis_client
+
+    if not app.config.get("CACHE_ENABLED", True):
+        redis_client = None
+        return redis_client
+
+    try:
+        redis_client = Redis.from_url(
+            app.config["REDIS_CACHE_URL"],
+            decode_responses=True,
+        )
+        if app.config.get("CACHE_PING_ON_STARTUP", False):
+            redis_client.ping()
+    except Exception as exc:
+        app.logger.warning("Redis cache disabled: %s", exc)
+        redis_client = None
+    return redis_client
+
+
+def get_redis_client() -> Redis | None:
+    return redis_client

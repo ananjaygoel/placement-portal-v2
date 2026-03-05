@@ -19,6 +19,19 @@ class Config:
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
+    REDIS_CACHE_URL = os.getenv("REDIS_CACHE_URL", "redis://localhost:6379/1")
+    CACHE_ENABLED = os.getenv("CACHE_ENABLED", "1") == "1"
+    CACHE_PING_ON_STARTUP = os.getenv("CACHE_PING_ON_STARTUP", "0") == "1"
+    CACHE_KEY_PREFIX = os.getenv("CACHE_KEY_PREFIX", "ppa:cache")
+    CACHE_DEFAULT_TTL_SECONDS = int(os.getenv("CACHE_DEFAULT_TTL_SECONDS", "120"))
+    CACHE_JOB_LIST_TTL_SECONDS = int(os.getenv("CACHE_JOB_LIST_TTL_SECONDS", "90"))
+    CACHE_COMPANY_SEARCH_TTL_SECONDS = int(
+        os.getenv("CACHE_COMPANY_SEARCH_TTL_SECONDS", "180")
+    )
+    CACHE_STUDENT_SEARCH_TTL_SECONDS = int(
+        os.getenv("CACHE_STUDENT_SEARCH_TTL_SECONDS", "180")
+    )
+
     CELERY_BROKER_URL = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
     CELERY_RESULT_BACKEND = os.getenv("CELERY_RESULT_BACKEND", CELERY_BROKER_URL)
     CELERY_TIMEZONE = os.getenv("CELERY_TIMEZONE", "Asia/Kolkata")

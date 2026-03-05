@@ -3,6 +3,11 @@ from __future__ import annotations
 from flask import Blueprint, jsonify, request
 from werkzeug.security import check_password_hash, generate_password_hash
 
+from app.cache import (
+    CACHE_NS_ADMIN_COMPANIES,
+    CACHE_NS_ADMIN_STUDENTS,
+    invalidate_cache_namespaces,
+)
 from app.extensions import db
 from app.models import Company, CompanyApprovalStatus, Student, User, UserRole
 from app.security import create_access_token, token_required
@@ -46,6 +51,7 @@ def register_student():
     )
     db.session.add_all([user, student])
     db.session.commit()
+    invalidate_cache_namespaces(CACHE_NS_ADMIN_STUDENTS)
 
     return jsonify({"message": "Student registered successfully"}), 201
 
@@ -79,6 +85,7 @@ def register_company():
     )
     db.session.add_all([user, company])
     db.session.commit()
+    invalidate_cache_namespaces(CACHE_NS_ADMIN_COMPANIES)
 
     return jsonify(
         {

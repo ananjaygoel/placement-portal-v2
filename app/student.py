@@ -4,12 +4,18 @@ from datetime import date, datetime
 from io import BytesIO
 from pathlib import Path
 
-from flask import Blueprint, g, jsonify, request, send_file
+from flask import Blueprint, current_app, g, jsonify, request, send_file
 from sqlalchemy import or_
 
 from app.application_tracking import (
     append_status_history,
     serialize_status_history,
+)
+from app.cache import (
+    CACHE_NS_ADMIN_STUDENTS,
+    CACHE_NS_STUDENT_JOBS,
+    invalidate_cache_namespaces,
+    load_cached_json,
 )
 from app.extensions import db
 from app.models import (
@@ -468,6 +474,7 @@ def update_profile():
         student.cgpa = payload.get("cgpa")
 
     db.session.commit()
+    invalidate_cache_namespaces(CACHE_NS_ADMIN_STUDENTS, CACHE_NS_STUDENT_JOBS)
 
     return jsonify(
         {
@@ -495,42 +502,52 @@ def list_jobs():
     if error_response:
         return error_response
 
-    query = _job_visibility_query().filter(JobPosition.application_deadline >= date.today())
-    search_text = (request.args.get("q") or "").strip()
-    if search_text:
-        like_value = f"%{search_text}%"
-        query = query.filter(
-            or_(
-                Company.company_name.ilike(like_value),
-                JobPosition.title.ilike(like_value),
-                JobPosition.skills_required.ilike(like_value),
-                JobPosition.experience_required.ilike(like_value),
+    def _load_jobs_payload():
+        query = _job_visibility_query().filter(JobPosition.application_deadline >= date.today())
+        search_text = (request.args.get("q") or "").strip()
+        if search_text:
+            like_value = f"%{search_text}%"
+            query = query.filter(
+                or_(
+                    Company.company_name.ilike(like_value),
+                    JobPosition.title.ilike(like_value),
+                    JobPosition.skills_required.ilike(like_value),
+                    JobPosition.experience_required.ilike(like_value),
+                )
             )
-        )
 
-    company_filter = (request.args.get("company") or "").strip()
-    if company_filter:
-        query = query.filter(Company.company_name.ilike(f"%{company_filter}%"))
+        company_filter = (request.args.get("company") or "").strip()
+        if company_filter:
+            query = query.filter(Company.company_name.ilike(f"%{company_filter}%"))
 
-    position_filter = (request.args.get("position") or "").strip()
-    if position_filter:
-        query = query.filter(JobPosition.title.ilike(f"%{position_filter}%"))
+        position_filter = (request.args.get("position") or "").strip()
+        if position_filter:
+            query = query.filter(JobPosition.title.ilike(f"%{position_filter}%"))
 
-    skills_filter = (request.args.get("skills") or "").strip()
-    if skills_filter:
-        query = query.filter(JobPosition.skills_required.ilike(f"%{skills_filter}%"))
+        skills_filter = (request.args.get("skills") or "").strip()
+        if skills_filter:
+            query = query.filter(JobPosition.skills_required.ilike(f"%{skills_filter}%"))
 
-    jobs = query.order_by(JobPosition.application_deadline.asc()).all()
-    applications = Application.query.filter_by(student_id=student.id).all()
-    applied_by_job_id = {application.job_id: application for application in applications}
+        jobs = query.order_by(JobPosition.application_deadline.asc()).all()
+        applications = Application.query.filter_by(student_id=student.id).all()
+        applied_by_job_id = {application.job_id: application for application in applications}
 
-    return jsonify(
-        {
+        return {
             "jobs": [
                 _serialize_job_for_student(student, job, applied_by_job_id) for job in jobs
             ]
         }
+
+    payload, is_cache_hit = load_cached_json(
+        namespace=CACHE_NS_STUDENT_JOBS,
+        params=request.args.to_dict(flat=True),
+        ttl_seconds=current_app.config["CACHE_JOB_LIST_TTL_SECONDS"],
+        loader=_load_jobs_payload,
+        user_scope=f"student:{g.current_user.id}",
     )
+    response = jsonify(payload)
+    response.headers["X-Cache"] = "HIT" if is_cache_hit else "MISS"
+    return response
 
 
 @student_bp.post("/jobs/<int:job_id>/apply")
@@ -586,6 +603,7 @@ def apply_to_job(job_id: int):
         remarks="Application submitted",
     )
     db.session.commit()
+    invalidate_cache_namespaces(CACHE_NS_STUDENT_JOBS)
 
     return jsonify(
         {

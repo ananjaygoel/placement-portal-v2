@@ -41,7 +41,7 @@ This repository currently includes:
 ## Tech Stack
 - Flask (API)
 - SQLite (database)
-- Redis (Celery broker/result backend)
+- Redis (Celery broker/result backend + API caching)
 - Celery + Celery Beat (scheduled + async jobs)
 - Vue.js + Bootstrap (single-page dashboard UI)
 
@@ -82,6 +82,11 @@ This repository currently includes:
 - `PPA_RESET_DB=1` (optional, drops and recreates all tables before seeding)
 - `CELERY_BROKER_URL` (default: `redis://localhost:6379/0`)
 - `CELERY_RESULT_BACKEND` (default: same as broker)
+- `REDIS_CACHE_URL` (default: `redis://localhost:6379/1`)
+- `CACHE_ENABLED` (`1` or `0`)
+- `CACHE_JOB_LIST_TTL_SECONDS` (default: `90`)
+- `CACHE_COMPANY_SEARCH_TTL_SECONDS` (default: `180`)
+- `CACHE_STUDENT_SEARCH_TTL_SECONDS` (default: `180`)
 - `DEFAULT_NOTIFICATION_CHANNEL` (`in_app` / `email` / `gchat` / `sms`)
 - `MONTHLY_REPORT_FORMAT` (`html` or `pdf`)
 
@@ -92,6 +97,23 @@ This repository currently includes:
   - Student application and placement history.
   - Company application and placement pipeline history.
 - In-app notification records are generated for reminders, report availability, and export completion/failure.
+
+## Redis API Caching
+- Read-through Redis cache is enabled for:
+  - `GET /api/student/jobs` (job listing + filters)
+  - `GET /api/admin/companies` (company search)
+  - `GET /api/admin/students` (student search)
+- Cache expiry policy:
+  - Job listing TTL: `CACHE_JOB_LIST_TTL_SECONDS`
+  - Company search TTL: `CACHE_COMPANY_SEARCH_TTL_SECONDS`
+  - Student search TTL: `CACHE_STUDENT_SEARCH_TTL_SECONDS`
+- Cache refresh policy:
+  - Expired keys are lazily rebuilt on next request.
+  - API responses include `X-Cache: HIT` or `X-Cache: MISS`.
+- Cache invalidation policy:
+  - Company writes invalidate company-search and student-job cache keys.
+  - Student writes invalidate student-search and student-job cache keys.
+  - Drive/application writes invalidate student-job cache keys.
 
 ## Auth + RBAC Rules
 - Admin: predefined user only (no registration endpoint).
@@ -169,3 +191,4 @@ This repository currently includes:
 - Milestone 5: Student dashboard and job application system ✅
 - Milestone 6: Job application history and status tracking ✅
 - Milestone 7: Backend jobs with Celery + Redis ✅
+- Milestone 8: Redis caching and API optimization ✅

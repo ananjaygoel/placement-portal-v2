@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, current_app, g, jsonify, request
 from sqlalchemy import or_
 
 from app.application_tracking import (
@@ -8,6 +8,13 @@ from app.application_tracking import (
     parse_salary,
     serialize_status_history,
     update_application_status as apply_application_status_update,
+)
+from app.cache import (
+    CACHE_NS_ADMIN_COMPANIES,
+    CACHE_NS_ADMIN_STUDENTS,
+    CACHE_NS_STUDENT_JOBS,
+    invalidate_cache_namespaces,
+    load_cached_json,
 )
 from app.extensions import db
 from app.models import (
@@ -287,36 +294,49 @@ def list_reports():
 @admin_bp.get("/companies")
 @token_required(UserRole.ADMIN)
 def list_companies():
-    query = Company.query.join(User, Company.user_id == User.id)
-
-    search_text = (request.args.get("q") or "").strip()
-    if search_text:
-        like_value = f"%{search_text}%"
-        search_filters = [
-            Company.company_name.ilike(like_value),
-            Company.industry.ilike(like_value),
-            Company.hr_contact.ilike(like_value),
-            User.email.ilike(like_value),
-        ]
-        if search_text.isdigit():
-            search_filters.append(Company.id == int(search_text))
-        query = query.filter(or_(*search_filters))
-
-    industry_filter = (request.args.get("industry") or "").strip()
-    if industry_filter:
-        query = query.filter(Company.industry.ilike(f"%{industry_filter}%"))
-
     approval_status_filter = _parse_enum(
         request.args.get("approval_status"),
         CompanyApprovalStatus,
     )
     if request.args.get("approval_status") and not approval_status_filter:
         return jsonify({"error": "Invalid approval_status"}), 400
-    if approval_status_filter:
-        query = query.filter(Company.approval_status == approval_status_filter)
 
-    companies = query.order_by(Company.created_at.desc()).all()
-    return jsonify({"companies": [_serialize_company(company) for company in companies]})
+    def _load_companies_payload():
+        query = Company.query.join(User, Company.user_id == User.id)
+
+        search_text = (request.args.get("q") or "").strip()
+        if search_text:
+            like_value = f"%{search_text}%"
+            search_filters = [
+                Company.company_name.ilike(like_value),
+                Company.industry.ilike(like_value),
+                Company.hr_contact.ilike(like_value),
+                User.email.ilike(like_value),
+            ]
+            if search_text.isdigit():
+                search_filters.append(Company.id == int(search_text))
+            query = query.filter(or_(*search_filters))
+
+        industry_filter = (request.args.get("industry") or "").strip()
+        if industry_filter:
+            query = query.filter(Company.industry.ilike(f"%{industry_filter}%"))
+
+        if approval_status_filter:
+            query = query.filter(Company.approval_status == approval_status_filter)
+
+        companies = query.order_by(Company.created_at.desc()).all()
+        return {"companies": [_serialize_company(company) for company in companies]}
+
+    payload, is_cache_hit = load_cached_json(
+        namespace=CACHE_NS_ADMIN_COMPANIES,
+        params=request.args.to_dict(flat=True),
+        ttl_seconds=current_app.config["CACHE_COMPANY_SEARCH_TTL_SECONDS"],
+        loader=_load_companies_payload,
+        user_scope=f"admin:{g.current_user.id}",
+    )
+    response = jsonify(payload)
+    response.headers["X-Cache"] = "HIT" if is_cache_hit else "MISS"
+    return response
 
 
 @admin_bp.patch("/companies/<int:company_id>/approval")
@@ -342,6 +362,7 @@ def update_company_approval(company_id: int):
         company.user.is_active = True
 
     db.session.commit()
+    invalidate_cache_namespaces(CACHE_NS_ADMIN_COMPANIES, CACHE_NS_STUDENT_JOBS)
     return jsonify({"message": "Company approval updated", "company": _serialize_company(company)})
 
 
@@ -375,6 +396,7 @@ def update_company_status(company_id: int):
         company.user.is_active = next_is_active
 
     db.session.commit()
+    invalidate_cache_namespaces(CACHE_NS_ADMIN_COMPANIES, CACHE_NS_STUDENT_JOBS)
     return jsonify({"message": "Company status updated", "company": _serialize_company(company)})
 
 
@@ -390,28 +412,41 @@ def delete_company(company_id: int):
     user = company.user
     db.session.delete(user)
     db.session.commit()
+    invalidate_cache_namespaces(CACHE_NS_ADMIN_COMPANIES, CACHE_NS_STUDENT_JOBS)
     return jsonify({"message": "Company removed successfully"})
 
 
 @admin_bp.get("/students")
 @token_required(UserRole.ADMIN)
 def list_students():
-    query = Student.query.join(User, Student.user_id == User.id)
+    def _load_students_payload():
+        query = Student.query.join(User, Student.user_id == User.id)
 
-    search_text = (request.args.get("q") or "").strip()
-    if search_text:
-        like_value = f"%{search_text}%"
-        search_filters = [
-            Student.full_name.ilike(like_value),
-            Student.contact_number.ilike(like_value),
-            User.email.ilike(like_value),
-        ]
-        if search_text.isdigit():
-            search_filters.append(Student.id == int(search_text))
-        query = query.filter(or_(*search_filters))
+        search_text = (request.args.get("q") or "").strip()
+        if search_text:
+            like_value = f"%{search_text}%"
+            search_filters = [
+                Student.full_name.ilike(like_value),
+                Student.contact_number.ilike(like_value),
+                User.email.ilike(like_value),
+            ]
+            if search_text.isdigit():
+                search_filters.append(Student.id == int(search_text))
+            query = query.filter(or_(*search_filters))
 
-    students = query.order_by(Student.created_at.desc()).all()
-    return jsonify({"students": [_serialize_student(student) for student in students]})
+        students = query.order_by(Student.created_at.desc()).all()
+        return {"students": [_serialize_student(student) for student in students]}
+
+    payload, is_cache_hit = load_cached_json(
+        namespace=CACHE_NS_ADMIN_STUDENTS,
+        params=request.args.to_dict(flat=True),
+        ttl_seconds=current_app.config["CACHE_STUDENT_SEARCH_TTL_SECONDS"],
+        loader=_load_students_payload,
+        user_scope=f"admin:{g.current_user.id}",
+    )
+    response = jsonify(payload)
+    response.headers["X-Cache"] = "HIT" if is_cache_hit else "MISS"
+    return response
 
 
 @admin_bp.get("/students/<int:student_id>")
@@ -473,6 +508,7 @@ def update_student_status(student_id: int):
         student.user.is_active = next_is_active
 
     db.session.commit()
+    invalidate_cache_namespaces(CACHE_NS_ADMIN_STUDENTS, CACHE_NS_STUDENT_JOBS)
     return jsonify({"message": "Student status updated", "student": _serialize_student(student)})
 
 
@@ -488,6 +524,7 @@ def delete_student(student_id: int):
     user = student.user
     db.session.delete(user)
     db.session.commit()
+    invalidate_cache_namespaces(CACHE_NS_ADMIN_STUDENTS, CACHE_NS_STUDENT_JOBS)
     return jsonify({"message": "Student removed successfully"})
 
 
@@ -547,6 +584,7 @@ def update_drive_status(drive_id: int):
 
     drive.status = next_status
     db.session.commit()
+    invalidate_cache_namespaces(CACHE_NS_STUDENT_JOBS)
     return jsonify({"message": "Drive status updated", "drive": _serialize_drive(drive)})
 
 
@@ -561,6 +599,7 @@ def delete_drive(drive_id: int):
 
     db.session.delete(drive)
     db.session.commit()
+    invalidate_cache_namespaces(CACHE_NS_STUDENT_JOBS)
     return jsonify({"message": "Drive removed successfully"})
 
 
@@ -651,6 +690,7 @@ def update_application_status(application_id: int):
         return jsonify({"error": error_message}), 400
 
     db.session.commit()
+    invalidate_cache_namespaces(CACHE_NS_STUDENT_JOBS)
     return jsonify(
         {
             "message": "Application status updated",
@@ -671,4 +711,5 @@ def delete_application(application_id: int):
 
     db.session.delete(application)
     db.session.commit()
+    invalidate_cache_namespaces(CACHE_NS_STUDENT_JOBS)
     return jsonify({"message": "Application removed successfully"})

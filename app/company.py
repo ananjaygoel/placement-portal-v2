@@ -13,6 +13,7 @@ from app.application_tracking import (
     serialize_status_history,
     update_application_status as apply_application_status_update,
 )
+from app.cache import CACHE_NS_STUDENT_JOBS, invalidate_cache_namespaces
 from app.extensions import db
 from app.models import (
     Application,
@@ -392,6 +393,7 @@ def create_job():
     )
     db.session.add(job)
     db.session.commit()
+    invalidate_cache_namespaces(CACHE_NS_STUDENT_JOBS)
 
     return jsonify(
         {
@@ -458,6 +460,7 @@ def update_job_status(job_id: int):
         job.status = DriveStatus.APPROVED
 
     db.session.commit()
+    invalidate_cache_namespaces(CACHE_NS_STUDENT_JOBS)
     return jsonify({"message": "Job status updated", "job": _serialize_job(job)})
 
 
@@ -627,6 +630,7 @@ def update_application_status(application_id: int):
         return jsonify({"error": error_message}), 400
 
     db.session.commit()
+    invalidate_cache_namespaces(CACHE_NS_STUDENT_JOBS)
     return jsonify(
         {
             "message": "Application status updated",
@@ -688,6 +692,7 @@ def schedule_interview(application_id: int):
             return jsonify({"error": error_message}), 400
 
     db.session.commit()
+    invalidate_cache_namespaces(CACHE_NS_STUDENT_JOBS)
 
     return jsonify(
         {

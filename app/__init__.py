@@ -1,7 +1,7 @@
 from flask import Flask
 
 from app.config import Config
-from app.extensions import db, init_celery
+from app.extensions import db, init_celery, init_redis
 
 
 def create_app(config_class: type[Config] = Config) -> Flask:
@@ -10,6 +10,7 @@ def create_app(config_class: type[Config] = Config) -> Flask:
 
     db.init_app(app)
     init_celery(app)
+    init_redis(app)
 
     from app.admin import admin_bp
     from app.auth import auth_bp
