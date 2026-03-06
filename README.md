@@ -76,6 +76,15 @@ This repository currently includes:
    http://127.0.0.1:5000/
    ```
 
+## Submission Zip (Code Only)
+If your manual zip becomes large after running the app, it's usually because runtime files were created (e.g., `instance/ppa.db`, `instance/exports/`, `instance/reports/`, `celerybeat-schedule*`, `dump.rdb`). The safest approach is to generate a zip from git-tracked files only:
+
+```bash
+bash scripts/build_submission_zip.sh
+```
+
+This produces `placement-portal-v2-main.zip` containing only committed code (no DB, exports, caches, or `.venv`).
+
 ## Default Admin Seed (Override via env vars)
 - `PPA_ADMIN_EMAIL` (default: `admin@institute.edu`)
 - `PPA_ADMIN_PASSWORD` (default: `admin123`)

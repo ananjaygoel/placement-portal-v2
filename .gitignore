@@ -19,7 +19,7 @@ instance/
 
 # Redis / Celery
 dump.rdb
-celerybeat-schedule
+celerybeat-schedule*
 
 # Vue / Node
 node_modules/
@@ -35,3 +35,7 @@ pnpm-debug.log*
 .DS_Store
 .idea/
 .vscode/
+
+# Local notes (do not submit)
+AUDIT_*.md
+SUBMISSION_FIX.md
